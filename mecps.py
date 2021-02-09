@@ -2407,7 +2407,7 @@ def EGall(return_txt=False,chamber_meter_in=False):#add LasCoeff(); add total EA
     headstr='';wpstr='';headlist=['AB','EF','GH','IJ'];
     for ii in range(4):
         wpstr=wpstr+headlist[ii]+': '+str(round(wppvlist[ii].get(),3))+', '
-    wpenlist=[headenb[ii]*np.cos((np.pi/180)*2*wppvlist[ii].get())**2 for ii in range(4)]
+    wpenlist=[1e-12 + headenb[ii]*np.cos((np.pi/180)*2*wppvlist[ii].get())**2 for ii in range(4)]
     ###
     strlist=[]
     strlist.append('Date: '+ datetime.now().strftime('%A, %d. %B %Y %I:%M:%S%p'))
@@ -3066,7 +3066,7 @@ def psheaders():
         
 
 
-def psacqx(save_flag=True, RunNumQQ=900):
+def psacqx_old(save_flag=True, RunNumQQ=900):#replaced when LeCroyA came back
     pshostcheck()
     DateStr=psheaders()
     psfpQ=psfilepath()
@@ -3245,7 +3245,7 @@ def psacqx(save_flag=True, RunNumQQ=900):
 
 
 
-def psacqx_noLecroyA(save_flag=True, RunNumQQ=900):
+def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
     pshostcheck()
     DateStr=psheaders()
     psfpQ=psfilepath()
@@ -3306,10 +3306,10 @@ def psacqx_noLecroyA(save_flag=True, RunNumQQ=900):
     if cIJ:
         RunName=RunName+'IJ'
 
-    SLB=LBOpen(); time.sleep(.15);
-    weichYFE00=np.array(weichYFE1w(1,SLB));
-    weich1in1wCD=np.array(weich1in1w(2,SLB));
-    time.sleep(.15); LBClose(SLB); time.sleep(.15);
+    SLA=LAOpen(); time.sleep(.15);#changed back to all LeCroyA
+    weichYFE00=np.array(weichYFE1w(1,SLA));
+    weich1in1wCD=np.array(weich1in1w(2,SLA));
+    time.sleep(.15); LAClose(SLA); time.sleep(.15);
 
     SLB=LBOpen(); time.sleep(.15);
     weich2in1wAB=np.array(weich2in1w(1,SLB)); weich2in1wEF=np.array(weich2in1w(2,SLB));
@@ -3498,7 +3498,7 @@ def psefc(JreqQ=0,AQQ=0.0):
     return wupd
     ##EXECUTE THIS FILE FIRST TO DETERMINE THE UPDATED WAVEFORM
 
-def psefc10Hz(pwt=0,numIterQ=50,AQQ=0.03):
+def psefc10Hz_old(pwt=0,numIterQ=50,AQQ=0.03): #replaced once LeCroyA fixed
     evrpv=EpicsSignal('EVR:MEC:USR01:TRIG7:TEC')
     evrpv.put(43)
     psfpQ=psfilepath()
@@ -3530,18 +3530,18 @@ def psefc10Hz(pwt=0,numIterQ=50,AQQ=0.03):
     except:
         HClose(S);time.sleep(.15);LAClose(SA);time.sleep(.15)
 
-def psefc10HzB(pwt=0,numIterQ=50,AQQ=0.03):
+def psefc10Hz(pwt=0,numIterQ=50,AQQ=0.03):#was B; replaced when LeCroyA fixed
     evrpv=EpicsSignal('EVR:MEC:USR01:TRIG7:TEC')
     evrpv.put(43)
     psfpQ=psfilepath()
-    SB=LBOpen();time.sleep(.15);S=HOpen();time.sleep(.15);
+    SLA=LAOpen();time.sleep(.15);S=HOpen();time.sleep(.15);#replaced w/LeCroyA
     try:
         meanerr=[]
         print('Start loop')
         for ii in range(numIterQ):
             if (ii+1)%50 == 0:
                 print(str('Iter:'+str(ii+1)))
-            ops0=rch(1,SB)####added.215 when 200mV/div instead of 100mV/div
+            ops0=rch(1,SLA)####added.215 when 200mV/div instead of 100mV/div
             time.sleep(0.05);
             rph=ReadPulseHeights(S,0);time.sleep(0.025);
             pwtF=np.array(TraceFormatting(pwt,[25,500],1))
@@ -3556,10 +3556,10 @@ def psefc10HzB(pwt=0,numIterQ=50,AQQ=0.03):
             WritePulseHeights(S,0,usa0FE*28000.);time.sleep(0.05);
         epll([pwtF,ops0F])
         epl(meanerr)
-        HClose(S);time.sleep(.15);LBClose(SB);time.sleep(.15)
+        HClose(S);time.sleep(.15);LAClose(SLA);time.sleep(.15)#replace w/ LeCroyA
     except:
         print('Failed')
-        HClose(S);time.sleep(.15);LBClose(SB);time.sleep(.15)
+        HClose(S);time.sleep(.15);LAClose(SLA);time.sleep(.15)#replace w/ LeCroyA
 
 def psefc10Hz2(pwt=0,numIterQ=50,goof=True,AQQ=0.03):
     #make up for messed up scope readout???
@@ -3757,6 +3757,88 @@ def psviewwvfm(RecipeStrQ='none',TargetwlistDateQ='curr',TargetwindexQ=0,WvGoal1
             print('Failed to load 2w waveform for display.')
         return NewWvfm
 
+
+def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1):
+    pshostcheck()
+    pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
+    pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
+    pvMBCsetpt=EpicsSignal('MEC:LPL:MBC:01:AutoCalibration.VAL',write_pv='MEC:LPL:MBC:01:AutoCalibration') #QUAD=0,MIN=1,MAX=2
+    pvMBCbias=EpicsSignal('MEC:LPL:MBC:01:BiasValue_RBV',write_pv='MEC:LPL:MBC:01:BiasValue')
+    pvMBCfault=EpicsSignal('MEC:LPL:MBC:01:ErrorStatus',write_pv='MEC:LPL:MBC:01:ClearErrors')
+    pvlampEC=EpicsSignal('EVR:MEC:USR01:TRIG6:EC_RBV',write_pv='EVR:MEC:USR01:TRIG6:TEC')#lamp event code; needs 182
+    pvslicerEC=EpicsSignal('EVR:MEC:USR01:TRIG7:EC_RBV',write_pv='EVR:MEC:USR01:TRIG7:TEC')#slicer event code; needs 182
+    pvlampenable=EpicsSignal('EVR:MEC:USR01:TRIG6:TCTL') #lamp enable;
+    pvslicerenable=EpicsSignal('EVR:MEC:USR01:TRIG7:TCTL') #slicer enable;
+    print('Loading timestamp: '+datetime.now().strftime('%A, %d. %B %Y %I:%M:%S%p'))
+    #load and extract the pulse target from the desired recipe
+    try:
+        [Psns,SSs,YFE02mmCurr,YFE06mmCurr,YFE10mmCurr,NewWvfm,WvGoal10Hz] = pickle.load(open(psfilepath()+'recipes/load'+RecipeStrQ+'.p','rb'))
+    except:
+        print('Recipe file '+psfilepath()+'recipes/load'+RecipeStrQ+'.p\' not found.')
+        return
+    psparams=np.array(re.findall('Wave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10Hz),dtype=np.float32); 
+    yfegoal=LinearWave2(500,0,1025,0,0,5002);
+    if len(psparams) > 0:
+        for ii in range(len(psparams)): 
+            yfegoal+=ExponentialWave2(psparams[ii][0],psparams[ii][1],psparams[ii][2],psparams[ii][3],0,5002)
+    else:
+        print('No wave extracted: '+WvGoal10Hz)
+        return
+    #close the shutters
+    ttlpvlist=[EpicsSignal('MEC:LAS:TTL:0'+str(ii+1)) for ii in range(6)]
+    print('Closing all shutters...')
+    for ii in range(6):
+        ttlpvlist[ii].put(1);#close all the shutters
+    time.sleep(4)
+    #check if laser is on
+    if np.sum(YFEget(display=False)) < 400:
+        if np.sum(YFEget(display=False)) < 20:
+            print('WARNING: YFE seems to be off... Attempting to turn on YFE...')
+            YFEon();
+        else:
+            print('WARNING: eDrive currents seem low...')
+            prechk = False
+    #turn off bias dither; AUTO is 0; MAN is 1
+    if pvMBCmode.get() != 1:
+        print('Turning off MBC bias dither...',end='',flush=True);
+        currbias=pvMBCbias.get();
+        pvMBCmode.put(1);#set bias mode to MAN
+        for ii in range(3):
+           time.sleep(1);print('..',end='',flush=True);
+        print('*');
+        pvMBCbias.put(currbias+10);
+        print('Testing bias responsivity...',end='',flush=True);
+        for ii in range(2):
+           time.sleep(1);print('..',end='',flush=True);
+        if np.abs(pvMBCbias.get() - (currbias+10)) < 3:
+            pvMBCbias.put(currbias);
+            for ii in range(2):
+                time.sleep(1);print('..',end='',flush=True);
+            print('*');
+        else:
+            print('*')
+            print('WARNING: MBC not responding!!')
+    else:
+        print('MBC is not safe! Resetting the MBC...')
+        resetMBC();
+    #set and enable 10Hz output
+    if pvslicerEC.get() != 43:
+        pvslicerenable.put(0)
+        pvslicerEC.put(43)
+    if pvslicerenable.get() != 1:
+        pvslicerenable.put(1)
+    #run the update code
+    print('Refreshing the YFE wavefront...')
+    psefc10Hz(pwt=yfegoal,numIterQ=numStepsQ,AQQ=stepSizeQ)
+    #disable pulse picker
+    pvslicerenable.put(0)
+    #re-open shutters
+    print('Opening all shutters...')
+    for ii in range(6):
+        ttlpvlist[ii].put(1);#close all the shutters
+    time.sleep(4)
+
+
 def pspreshot():
     pshostcheck()
     pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
@@ -3841,7 +3923,7 @@ def pspostshot(save_flag_q=True):
     pvlampenable.put(0)
     pvslicerenable.put(0)
     pshostcheck()
-    psacqx_noLecroyA(save_flag=save_flag_q)
+    psacqx(save_flag=save_flag_q)#took out _noLecroyA
     psefc();
     print('Resetting bias tracking...')
     resetMBC();
@@ -3927,7 +4009,7 @@ def SHG_opt():#check for trace height;#All shutters must start in the open state
             alph=1
         SHGpvlist[ii].put(startposlist[ii]+alph*(-.1+.01*0))
     try:
-        SLB=LBOpen();time.sleep(.15);
+        SLA=LAOpen();time.sleep(.15);#changed to LecroyA since repair
         for ii in range(4):
             if armlist[ii] in ['EF','GH']:
                 alph=alphEFGH;
@@ -3939,7 +4021,7 @@ def SHG_opt():#check for trace height;#All shutters must start in the open state
             for jj in range(11):
                 print('.',end='',flush=True)
                 SHGpvlist[ii].put(startposlist[ii]+alph*(-.1+.02*(jj)));time.sleep(2.5);#step to new position
-                curr_x=SHGpvlist[ii].get();curr_y=np.max(rch(3,SLB));time.sleep(.15);
+                curr_x=SHGpvlist[ii].get();curr_y=np.max(rch(3,SLA));time.sleep(.15);
                 if curr_y > 0.005:#threshold so don't skew fit with noise; max is ~~10x this
                     shgarmdatax.append(curr_x);shgarmdatay.append(curr_y);#save x and y
                 print('.',end='',flush=True)
@@ -3955,10 +4037,10 @@ def SHG_opt():#check for trace height;#All shutters must start in the open state
             xpq=np.arange(startposlist[ii]+alph*(-.1+.02*(-1)),startposlist[ii]+alph*(-.1+.02*(11)),.0001);
             qfitp=np.poly1d(qfit);
             epllxy([[shgarmdatax,shgarmdatay],[xpq,qfitp(xpq)]],xlb=armlist[ii])
-        LBClose(SLB);time.sleep(.15);
+        LAClose(SLA);time.sleep(.15);#changed to LeCroyA
     except:
         print('Failed! Restoring original values! (Probably you need to punch a shutter too!)')
-        LBClose(SLB);time.sleep(.15);
+        LAClose(SLA);time.sleep(.15);#changed to LeCroyA
         for ii in range(4):
             SHGpvlist[ii].put(startposlist[ii])
     time.sleep(2);#need time so that last shutter trigger ends before trying to open IJ
@@ -3969,4 +4051,5 @@ def SHG_opt():#check for trace height;#All shutters must start in the open state
 
     
     
-
+def reloadchk():
+    print('Reload check: 1209')
