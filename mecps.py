@@ -731,7 +731,7 @@ def ReadMiscellaneousCalibrations(MySocketQ, SlaveAddress):
     #all return values are strings; HDataQ is already formatted using hexlify
     StatusInterpreter(HErrorQ, HStatusQ)
     HDataQList=[int(HDataQ[ii*4:4+ii*4],16) for ii in range(len(HDataQ)//4)]
-    print('Miscellaneous calibrations: '+str(CalList))
+    print('Miscellaneous calibrations: '+str(HDataQList))
     print('****')
     return HDataQList
     
@@ -2183,7 +2183,7 @@ def FastFETSurvey(HSQ,LS1Q):
         WritePulseHeights(HSQ,0,IndFETWave([jj*10+ii+1 for jj in range(14)],28000))#could improve by doing a few spread-out points at a time
         time.sleep(6)
         qpixnodata=readchan(1,LS1Q)['DATA']
-        qpeakcoords=signal.find_peaks_cwt(threshold(qpixnodata,max(qpixnodata)/5),np.arange(180,200))
+        qpeakcoords=signal.find_peaks_cwt(np.clip(qpixnodata,max(qpixnodata)/5,max(qpixnodata)),np.arange(180,200))#threshold->clip
         #this is 475ps/(2.5ps/pix)=190pix expected for S1 scope at max sampling; S2 scope needs different
         if len(qpeakcoords) != 15:
             print('\nWrong number of peaks detected!\n',len(qpeakcoords))
@@ -2214,13 +2214,15 @@ def VeryFastFETSurvey(HSQ,LS1Q):#returns np.array([qTimeErrInHpix,qTimeErrInHpix
     #time.sleep(.15)
     qdatalist=[]
     qrfis=ReadFiducialImpulseSettings(HSQ,0)
-    #WriteFiducialImpulseSettings(HSQ,0,4000,0)#try full-time 15000,45000
+    WriteFiducialImpulseSettings(HSQ,0,4000,45000)#try full-time 15000,45000
     time.sleep(.15)
     for ii in range(4):
         WritePulseHeights(HSQ,0,IndFETWave([jj*4+ii+1 for jj in range(35)],15000))#could improve by doing a few spread-out points at a time
         time.sleep(6)
         qpixnodata=readchan(1,LS1Q)['DATA']
-        qpeakcoords=signal.find_peaks_cwt(threshold(qpixnodata,max(qpixnodata)/4),np.arange(90,110))
+        #qpeakcoords=signal.find_peaks_cwt(np.clip(qpixnodata,max(qpixnodata)/4,max(qpixnodata)),np.arange(90,110))#threshold->clip
+        qpeakcoordspre=signal.find_peaks_cwt(np.clip(qpixnodata,max(qpixnodata)/4,max(qpixnodata))-max(qpixnodata)/4,np.arange(90,110));
+        qpeakcoords=[pt for pt in qpeakcoordspre if qpixnodata[pt]>max(qpixnodata)/4]
         #this is 475ps/(2.5ps/pix)=190pix expected for S1 scope at max sampling; S2 scope needs different
         if len(qpeakcoords) != 36:
             print('\nWrong number of peaks detected!\n',len(qpeakcoords))
@@ -2270,6 +2272,7 @@ def ScanAndShift(HSQ,LS1Q):
     #time.sleep(.15)
     #way to check scope settings? currently did this with the following:
     #5 mV/div, 10sweeps, 5ns/div, -33ns delay, 13ns deskew, -13.8mV offset
+    ##### use on 20210209: on 5n/div on LeCroy1, trigger off another channel, set fiducial at 9th div
     #ideally: read YFE settings, turn down, turn back up after done
     #set fiducial and everything like that
     scanresults=[]
@@ -3776,6 +3779,7 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1):
     except:
         print('Recipe file '+psfilepath()+'recipes/load'+RecipeStrQ+'.p\' not found.')
         return
+    print('Hint text: '+WvGoal10Hz)
     psparams=np.array(re.findall('Wave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10Hz),dtype=np.float32); 
     yfegoal=LinearWave2(500,0,1025,0,0,5002);
     if len(psparams) > 0:
@@ -3818,9 +3822,9 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1):
         else:
             print('*')
             print('WARNING: MBC not responding!!')
-    else:
-        print('MBC is not safe! Resetting the MBC...')
-        resetMBC();
+    #else:
+    #    print('MBC is not safe! Resetting the MBC...')#problem is here...
+    #    resetMBC();
     #set and enable 10Hz output
     if pvslicerEC.get() != 43:
         pvslicerenable.put(0)
@@ -3830,8 +3834,10 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1):
     #run the update code
     print('Refreshing the YFE wavefront...')
     psefc10Hz(pwt=yfegoal,numIterQ=numStepsQ,AQQ=stepSizeQ)
-    #disable pulse picker
-    pvslicerenable.put(0)
+    #reset to single shot on pulse picker
+    pvslicerenable.put(0);time.sleep(0.5);
+    pvslicerEC.put(182);time.sleep(0.5);
+    pvslicerenable.put(1)
     #re-open shutters
     print('Opening all shutters...')
     for ii in range(6):
