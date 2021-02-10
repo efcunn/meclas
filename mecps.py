@@ -1,3 +1,4 @@
+#((once finished, rename as mecps in folder and then transfer to final location))
 # -*- coding: utf-8 -*-
 ###conglomerate of different old files
 
@@ -3533,7 +3534,7 @@ def psefc10Hz_old(pwt=0,numIterQ=50,AQQ=0.03): #replaced once LeCroyA fixed
     except:
         HClose(S);time.sleep(.15);LAClose(SA);time.sleep(.15)
 
-def psefc10Hz(pwt=0,numIterQ=50,AQQ=0.03):#was B; replaced when LeCroyA fixed
+def psefc10Hz(pwt=0,numIterQ=50,AQQ=0.03,displayPlot=False):#was B; replaced when LeCroyA fixed
     evrpv=EpicsSignal('EVR:MEC:USR01:TRIG7:TEC')
     evrpv.put(43)
     psfpQ=psfilepath()
@@ -3557,8 +3558,9 @@ def psefc10Hz(pwt=0,numIterQ=50,AQQ=0.03):#was B; replaced when LeCroyA fixed
             #usa0FE=FixEdges(usa0,[3,4.25],[[.98*100/8.0,100/8.0],[98,100]])
             #epll([rph,usa0FE*28000.])
             WritePulseHeights(S,0,usa0FE*28000.);time.sleep(0.05);
-        epll([pwtF,ops0F])
-        epl(meanerr)
+        if displayPlot:
+            epll([pwtF,ops0F])
+            epl(meanerr)
         HClose(S);time.sleep(.15);LAClose(SLA);time.sleep(.15)#replace w/ LeCroyA
     except:
         print('Failed')
@@ -3761,7 +3763,7 @@ def psviewwvfm(RecipeStrQ='none',TargetwlistDateQ='curr',TargetwindexQ=0,WvGoal1
         return NewWvfm
 
 
-def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1):
+def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1,displayPlot=False):
     pshostcheck()
     pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
@@ -3833,7 +3835,7 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1):
         pvslicerenable.put(1)
     #run the update code
     print('Refreshing the YFE wavefront...')
-    psefc10Hz(pwt=yfegoal,numIterQ=numStepsQ,AQQ=stepSizeQ)
+    psefc10Hz(pwt=yfegoal,numIterQ=numStepsQ,AQQ=stepSizeQ,displayPlot)
     #reset to single shot on pulse picker
     pvslicerenable.put(0);time.sleep(0.5);
     pvslicerEC.put(182);time.sleep(0.5);
