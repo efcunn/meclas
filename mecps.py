@@ -3763,7 +3763,7 @@ def psviewwvfm(RecipeStrQ='none',TargetwlistDateQ='curr',TargetwindexQ=0,WvGoal1
         return NewWvfm
 
 
-def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1,displayPlot=False):
+def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1,displayPlotQ=False):
     pshostcheck()
     pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
@@ -3835,7 +3835,7 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1,displayPlot=False):
         pvslicerenable.put(1)
     #run the update code
     print('Refreshing the YFE wavefront...')
-    psefc10Hz(pwt=yfegoal,numIterQ=numStepsQ,AQQ=stepSizeQ,displayPlot)
+    psefc10Hz(pwt=yfegoal,numIterQ=numStepsQ,AQQ=stepSizeQ,displayPlot=displayPlotQ)
     #reset to single shot on pulse picker
     pvslicerenable.put(0);time.sleep(0.5);
     pvslicerEC.put(182);time.sleep(0.5);
