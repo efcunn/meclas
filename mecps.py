@@ -805,6 +805,7 @@ def HOpen():
         #print('HIGHLAND CONNECTED')
     except:
         print('HIGHLAND NOT CONNECTED')
+        return False
     return HighlandSocket
 
 def HClose(SocketName):
@@ -822,6 +823,7 @@ def LOpen():
         #print('LECROY CONNECTED')
     except:
         print('LECROY NOT CONNECTED')
+        return False
     return LSock
 
 def LClose(SocketName):
@@ -839,6 +841,7 @@ def L2Open():
         #print('LECROY2 CONNECTED')
     except:
         print('LECROY2 NOT CONNECTED')
+        return False
     return LSock
 
 def L2Close(SocketName):
@@ -856,6 +859,7 @@ def LAOpen():
         #print('LECROY CONNECTED')
     except:
         print('LECROYA NOT CONNECTED')
+        return False
     return LSock
 
 def LAClose(SocketName):
@@ -873,6 +877,7 @@ def LBOpen():
         #print('LECROY2 CONNECTED')
     except:
         print('LECROYB NOT CONNECTED')
+        return False
     return LSock
 
 def LBClose(SocketName):
@@ -1637,6 +1642,7 @@ def YFEtrace():
     except:
         LAClose(SLA);
         print('Failed to display trace')
+        return False
 
 def pchall(LSock):
     df1=plt.figure()
@@ -1664,10 +1670,12 @@ def eplxyloglog(listxq,listyq):
     df1.show()
     return
 
-def eplsav(listq,FileNameQ):
+def eplsav(listq,FileNameQ,blockdisplay=True):
     df1=plt.figure()
     plt.plot(listq);
     df1.savefig(str(FileNameQ+'.png'))
+    if blockdisplay:
+        plt.close(df1)
     return
     
 def eplxysav(listxq,listyq,FileNameQ,abs_path=False):
@@ -1886,7 +1894,7 @@ def FixEdges(WavF,DurationListQ,StartStopListQ):
                 fWavF[FirstPix+int(4*DurListQ[ii+1])-ContCount]=fWavF[FirstPix+int(4*DurListQ[ii+1])+1-ContCount]
             else:
                 ContCount+=1
-    fWavF[FirstPix]=fWavF[FirstPix+1]*1.1
+    #fWavF[FirstPix]=fWavF[FirstPix+1]*1.1
     #try fixing last THREE pixels to help back edge
     fWavF[FirstPix+int(4*DurListQ[-1])-2-ContCount]=fWavF[FirstPix+int(4*DurListQ[-1])-3-ContCount]*1.05
     fWavF[FirstPix+int(4*DurListQ[-1])-1-ContCount]=fWavF[FirstPix+int(4*DurListQ[-1])-2-ContCount]*1.05
@@ -1919,7 +1927,7 @@ def isMBCsafe():
     if not -7000<pvMBCbias.get()<7000:
         print('MBC is out of range!')
         status*=False
-    if pvMBCfault.get() !=0:
+    if pvMBCfault.get() != 0:
         print('MBC fault detected!')
         status*=False
     if status:
@@ -1937,22 +1945,25 @@ def isMBCsafe():
     else:
         return False
 
-def resetMBC():#includes YFEOff() at beginning, but must explicitly ask later to turn YFE back on w/ YFEOn()
+def resetMBC():#includes YFEOff() at beginning, but must explicitly ask later to turn YFE back on w/ YFEOn() or YFEsetall(True)
     pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
     pvMBCsetpt=EpicsSignal('MEC:LPL:MBC:01:AutoCalibration.VAL',write_pv='MEC:LPL:MBC:01:AutoCalibration') #QUAD=0,MIN=1,MAX=2
     pvMBCbias=EpicsSignal('MEC:LPL:MBC:01:BiasValue_RBV',write_pv='MEC:LPL:MBC:01:BiasValue')
     pvMBCfault=EpicsSignal('MEC:LPL:MBC:01:ErrorStatus',write_pv='MEC:LPL:MBC:01:ClearErrors')
-    YFEoff();
-    print('Resetting the MBC...')
+    YFEsetall(False);#pvMBCmode.put(0);time.sleep(1);#make sure it's in AUTO not MAN when it wakes up... saves time
+    print('Begin resetting the MBC...')
+    #pvMBCpower.put(2);time.sleep(2);
     if pvMBCpower.get() != 1:
-        print('Turning on MBC, starting scan...')
-        pvMBCpower.put(1)
-        time.sleep(2)
-    if pvMBCfault.get() !=0:
-        print('Attempting to reset MBC fault...')
+        print('Powering on MBC, starting scan...',end='',flush=True)
+        pvMBCpower.put(1);time.sleep(1);print('.',end='',flush=True);pvMBCmode.put(0);
+        for ii in range(8):
+            time.sleep(1);print('.',end='',flush=True);
+        print('');
+    if pvMBCfault.get() != 0:
+        print('Attempting to reset MBC fault...',end='',flush=True)
         pvMBCfault.put(1)
-        time.sleep(2)
+        time.sleep(2);print('*');
     if pvMBCmode.get() != 0:
         print('Setting MBC to AUTO mode, starting scan...',end='',flush=True)
         pvMBCmode.put(0)
@@ -1960,15 +1971,15 @@ def resetMBC():#includes YFEOff() at beginning, but must explicitly ask later to
             time.sleep(1);print('.',end='',flush=True);
         print('*')
     if pvMBCsetpt.get() != 1:
-        print('Setting MBC to MIN mode,starting scan...')
+        print('Setting MBC to MIN mode,starting scan...',end='',flush=True)
         pvMBCsetpt.put(1)
-        time.sleep(2)
+        time.sleep(2);print('*');
     if not -7000<pvMBCbias.get()<7000:
-        print('MBC is out of range! Turning off and resetting MBC...')
-        pvMBCpower.put(2)
+        print('MBC is out of range! Aborting and power-cycling...');
+        pvMBCpower.put(2);time.sleep(2);
         resetMBC()
     biaschk=[]
-    print('Checking the MBC bias level...',end='',flush=True)
+    print('Checking the initial MBC bias level...',end='',flush=True)
     for ii in range(3):
         biaschk.append(pvMBCbias.get())
         time.sleep(1);print('..',end='',flush=True);time.sleep(1);print('..',end='',flush=True);
@@ -1976,16 +1987,16 @@ def resetMBC():#includes YFEOff() at beginning, but must explicitly ask later to
     waitloop=True;loopcnt=0;
     while waitloop:
         if np.sum(np.abs(np.diff(biaschk))) > 3:
-            print('MBC bias level unstable... '+str(biaschk))
+            print('MBC bias level unstable... '+str(biaschk),end='',flush=True)
             biaschk=[]
             for ii in range(3):
                 biaschk.append(pvMBCbias.get())
                 time.sleep(1);print('..',end='',flush=True);time.sleep(1);print('..',end='',flush=True);
             print('')
             loopcnt+=1
-            if loopcnt >= 10:
-                print('MBC bias level stability fail. Turning off and resetting MBC...')
-                pvMBCpower.put(2)
+            if loopcnt >= 15:
+                print('MBC bias level stability fail. Aborting and power-cycling...')
+                pvMBCpower.put(2);time.sleep(2);
                 resetMBC()
         else:
             print('MBC bias level stabilized... '+str(biaschk))
@@ -2001,7 +2012,6 @@ def YFEon():
     YFEadd='MEC:LPL:LCO:0'
     YFEamp=['2','3','5','6','1','4']
     YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL',':ClearFault']
-    YFEset=[85,85,85,85,130,124]
     print('Turning on YFE! Checking for faults...')
     faultpvlist=[EpicsSignal(YFEadd+amplabel+YFEsuf[6], write_pv=YFEadd+amplabel+YFEsuf[7]) for amplabel in YFEamp]
     emisspvlist=[EpicsSignal(YFEadd+amplabel+YFEsuf[4]) for amplabel in YFEamp]
@@ -2018,10 +2028,10 @@ def YFEon():
         else:
             print('Fault cleared!')
     if not isMBCsafe():
-        YFEoff()
-        print('MBC not configured properly! Resetting...')
+        YFEsetall(False,displayQ=False)
+        print('MBC not configured properly!')
         resetMBC()
-        YFEon();
+        YFEsetall(True,displayQ=False);
     else: #later add check to avoid over-energizing by reading power meter
         for ii in range(len(YFEamp)):
             tempsetcurrpv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[1])
@@ -2034,13 +2044,8 @@ def YFEon():
         print('*')
         emissstatlist=[emisspv.get() for emisspv in emisspvlist]
         if all(emissstatlist):
-            print('Ramping up currents...',end='')
-            for stepno in range(steps):
-                for ii in range(len(YFEamp)):
-                    tempsetcurrpv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[1])
-                    tempsetcurrpv.put(YFEset[ii]*(1.0*stepno+1)/(1.0*steps))
-                time.sleep(1);print('.', end='',flush=True);
-            print('*')
+            print('Ramping up currents...')
+            YFEsetall(True);
             print('YFE LASER ON')
         else:
             print('Turn on sequence failed. Check emission!')
@@ -2072,16 +2077,14 @@ def YFEget(display=True):
     for ii in range(len(YFEamp)):
         tempsetcurrpv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[1])
         tempactcurrpv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[0])
-        currreqQ.append(tempsetcurrpv.get())
-        curractQ.append(tempactcurrpv.get())
+        currreqQ.append(round(tempsetcurrpv.get(),4))
+        curractQ.append(round(tempactcurrpv.get(),4))
     if display:
-        print('Requested currents:')
-        print(currreqQ)
-        print('Actual currents:')
-        print(curractQ)
+        print('Requested currents: '+str(currreqQ))
+        print('Actual currents:    '+str(curractQ))
     return currreqQ
 
-def YFEset(mmQ,currQ):
+def YFEset(mmQ,currQ,display=True):
     YFEadd='MEC:LPL:LCO:0'
     YFEamp=['2','3','5','6','1','4']
     YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL']
@@ -2120,7 +2123,31 @@ def YFEset(mmQ,currQ):
                 tempnewcurrpv.put(currQ-int(((1.0*nostep-ii)/(nostep+1.0))*(currQ-currmeaQ)))
                 time.sleep(1)
         tempnewcurrpv.put(currQ)
-    print(str(mmQ)+' mm changed from ' + oldcurrQ + ' to ' + str(currQ))
+    if display:
+        print(str(mmQ)+' mm changed from ' + oldcurrQ + ' to ' + str(currQ))
+    return
+
+def YFEsetall(IOBool,displayQ=False):
+    YFEadd='MEC:LPL:LCO:0'
+    YFEamp=['2','3','5','6','1','4']
+    YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL']
+    YFElvl=[85,85,85,85,130,124];
+    temppvlist=[]
+    for ii in range(6):
+        temppvlist.append(EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[1]))
+    if IOBool:
+        print('Ramping currents...',end='',flush=True)
+        for jj in range(5):
+            for eachpv,pvlvl in zip(temppvlist,YFElvl):
+                eachpv.put(pvlvl*(jj+1)/(5.0));
+            time.sleep(1);print('..',end='',flush=True);
+        print('*')
+    else:
+        print('Zeroing currents...',end='',flush=True);
+        for eachpv in temppvlist:
+            eachpv.put(0)
+        time.sleep(1.5);print('*');
+    YFEget(display=displayQ);
     return
     
 def wshift(wq,pq):
@@ -2363,7 +2390,7 @@ def EG():
     egh=pvegh.get()
     pveij=EpicsSignal('MEC:LAS:GENTEC:04:CH2:MEAS')
     eij=pveij.get()
-    EAB,EEF,EGH,EIJ=round(eab/.00760/1.006/1.0412,4),round(eef/.00686/1.006/.9634,4),round(egh/.00655/1.015/.9692,4),round(eij/.00608/1.015/1.1232,4)
+    EAB,EEF,EGH,EIJ=round(eab/.00760/1.006/1.0412/1.0799/1.0478,4),round(eef/.00686/1.006/.9634/0.8410/0.9517,4),round(egh/.00655/1.015/.9692/0.883/0.9650,4),round(eij/.00608/1.015/1.1232/1.075/1.0863,4)
     guessarray=[[EAB,EEF,EGH,EIJ],round(EAB+EEF,4),round(EGH+EIJ,4),round(EAB+EEF+EGH+EIJ,4)]
     #print(guessarray)
     eabefpv=EpicsSignal('MEC:GENTEC:01:CH2:MEAS')
@@ -2392,7 +2419,7 @@ def EG1w2in():
     egh=pvegh.get()
     pveij=EpicsSignal('MEC:LAS:GENTEC:01:CH2:MEAS')
     eij=pveij.get()
-    EAB,EEF,EGH,EIJ=round(eab*224.0,4),round(eef*177.5,4),round(egh*307.4,4),round(eij*113.2,4)
+    EAB,EEF,EGH,EIJ=round(eab*224.0,4),round(eef*177.5,4),round(egh*307.4*0.849,4),round(eij*113.2,4)
     guessarray=[[EAB,EEF,EGH,EIJ],round(EAB+EEF,4),round(EGH+EIJ,4),round(EAB+EEF+EGH+EIJ,4)]
     return guessarray
 
@@ -2427,10 +2454,11 @@ def EGall(return_txt=False,chamber_meter_in=False):#add LasCoeff(); add total EA
     strlist.append('2"@2w: AB: '+'{:5.2f}'.format(round(cAB*en2wAB,4))+'J, EF: '+'{:5.2f}'.format(round(cEF*en2wEF,4))+'J, GH: '+'{:5.2f}'.format(round(cGH*en2wGH,4))+'J, IJ: '+'{:5.2f}'.format(round(cIJ*en2wIJ,4))+'J')
     print(strlist[-1]);strlist.append('\n');
     if np.sum(wpenlist) < 4:
-        strlist.append('2"@2w/HWP: AB: '+'{:5.2f}'.format(round(cAB*en2wAB/wpenlist[0],4))+'J, EF: '+'{:5.2f}'.format(round(cEF*en2wEF/wpenlist[1],4))+'J, GH: '+'{:5.2f}'.format(round(cGH*en2wGH/wpenlist[2],4))+'J, IJ: '+'{:5.2f}'.format(round(cIJ*en2wIJ/wpenlist[3],4))+'J')
-        print(strlist[-1]);strlist.append('\n');
-        strlist.append('Conv%/HWP: AB: '+'{:5.2f}'.format(round(100*cAB*en2wAB/en1wAB/wpenlist[0],4))+'%, EF: '+'{:5.2f}'.format(round(100*cEF*en2wEF/en1wEF/wpenlist[1],4))+'%, GH: '+'{:5.2f}'.format(round(100*cGH*en2wGH/en1wGH/wpenlist[2],4))+'%, IJ: '+'{:5.2f}'.format(round(100*cIJ*en2wIJ/en1wIJ/wpenlist[3],4))+'%')
-        print(strlist[-1]);strlist.append('\n');
+        #strlist.append('2"@2w/HWP: AB: '+'{:5.2f}'.format(round(cAB*en2wAB/wpenlist[0],4))+'J, EF: '+'{:5.2f}'.format(round(cEF*en2wEF/wpenlist[1],4))+'J, GH: '+'{:5.2f}'.format(round(cGH*en2wGH/wpenlist[2],4))+'J, IJ: '+'{:5.2f}'.format(round(cIJ*en2wIJ/wpenlist[3],4))+'J')
+        #print(strlist[-1]);strlist.append('\n');
+        #strlist.append('Conv%/HWP: AB: '+'{:5.2f}'.format(round(100*cAB*en2wAB/en1wAB/wpenlist[0],4))+'%, EF: '+'{:5.2f}'.format(round(100*cEF*en2wEF/en1wEF/wpenlist[1],4))+'%, GH: '+'{:5.2f}'.format(round(100*cGH*en2wGH/en1wGH/wpenlist[2],4))+'%, IJ: '+'{:5.2f}'.format(round(100*cIJ*en2wIJ/en1wIJ/wpenlist[3],4))+'%')
+        #print(strlist[-1]);strlist.append('\n');
+        pass
     else:
         strlist.append('Conv%: AB: '+'{:5.2f}'.format(round(100*cAB*en2wAB/en1wAB,4))+'%, EF: '+'{:5.2f}'.format(round(100*cEF*en2wEF/en1wEF,4))+'%, GH: '+'{:5.2f}'.format(round(100*cGH*en2wGH/en1wGH,4))+'%, IJ: '+'{:5.2f}'.format(round(100*cIJ*en2wIJ/en1wIJ,4))+'%')
         print(strlist[-1]);strlist.append('\n');
@@ -2669,15 +2697,25 @@ def YFEOptimizer2(InputPulseShapeQ, DesiredOutputPulseShapeQ, ChannelNo, LSocket
             IterationCounter+=1
 
 def fidon():
-    S=HOpen(); time.sleep(.15);
-    WriteFiducialImpulseSettings(S,0,20000,45000); time.sleep(.15);
-    HClose(S); time.sleep(.15);
+    try:
+        S=HOpen(); time.sleep(.15);
+        WriteFiducialImpulseSettings(S,0,20000,45000); time.sleep(.15);
+        HClose(S); time.sleep(.15);
+    except:
+        HClose(S);
+        print('Error!')
+        return False
     return
 
 def fidoff():
-    S=HOpen(); time.sleep(.15);
-    WriteFiducialImpulseSettings(S,0,0,0); time.sleep(.15);
-    HClose(S); time.sleep(.15);
+    try:
+        S=HOpen(); time.sleep(.15);
+        WriteFiducialImpulseSettings(S,0,0,0); time.sleep(.15);
+        HClose(S); time.sleep(.15);
+    except:
+        HClose(S);
+        print('Error!')
+        return False
     return
 
 def HWPon(ArmStrQ,set_T=1):#fullON=1;fullOFF=0
@@ -2719,7 +2757,7 @@ def HWPon(ArmStrQ,set_T=1):#fullON=1;fullOFF=0
                 print('Re-try on '+armlist[ii]+' failed!')
     return
 
-def HWPoff(ArmStrQ):
+def HWPoff(ArmStrQ):#can be deleted -- just use set_T=0
     if ArmStrQ == 'all':
         ArmStrQ = 'ABEFGHIJ'
     HWPABpv=EpicsSignal('MEC:NS1:MMS:02.RBV',write_pv='MEC:NS1:MMS:02.VAL')
@@ -2814,7 +2852,7 @@ def PFNoff(ArmStrQ):
     PFNmodepv.put(2)
     return
 
-def PFNonly(ArmStrQ):
+def PFNonly(ArmStrQ):#delete and just use ARMonly?
     AllStrQ='ABEFGHIJ'
     AllStrq='abefghij'
     if ArmStrQ == 'all':
@@ -2850,11 +2888,11 @@ def ARMonly(ArmStrQ):
         if (AllStrQ[ii] in ArmStrQ) or (AllStrq[ii] in ArmStrQ):
             temppv=EpicsSignal(str('MEC:PFN:CH'+str(ii+1)+':ENABLE'))
             temppv.put(1)
-            HWPon(AllStrQ[ii])
+            HWPon(AllStrQ[ii],set_T=1)
         else:
             temppv=EpicsSignal(str('MEC:PFN:CH'+str(ii+1)+':ENABLE'))
             temppv.put(0)
-            HWPoff(AllStrQ[ii])
+            HWPon(AllStrQ[ii],set_T=0)
     time.sleep(2)
     PFNmodepv.put(1)
     time.sleep(3.5)
@@ -2875,39 +2913,51 @@ def YFEwatch(ShotNumQ):
     line2, = ax.plot(range(len(pwtF[:26])),ops0F[:26],'r-')
     ax2=fig.add_subplot(212)
     xq=list();yq=list();
-    SA=LAOpen();time.sleep(.15);
-    for ii in range(ShotNumQ):
-        newops0F=TraceFormatting(rch(1,SA),[25,500],1)[:26]
-        line2.set_ydata(newops0F)
-        meanerr=np.sum(np.abs(pwtF[:26]-newops0F[:26])/pwtF[:26])/len(pwtF[:26])
-        xq.append(ii+1);yq.append(meanerr);
-        ax2.scatter(xq[-1],yq[-1]);
-        fig.canvas.draw()
-        time.sleep(.1)
-    LAClose(SA);time.sleep(.15);
+    try:
+        SA=LAOpen();time.sleep(.15);
+        for ii in range(ShotNumQ):
+            newops0F=TraceFormatting(rch(1,SA),[25,500],1)[:26]
+            line2.set_ydata(newops0F)
+            meanerr=np.sum(np.abs(pwtF[:26]-newops0F[:26])/pwtF[:26])/len(pwtF[:26])
+            xq.append(ii+1);yq.append(meanerr);
+            ax2.scatter(xq[-1],yq[-1]);
+            fig.canvas.draw()
+            time.sleep(.1)
+        LAClose(SA);time.sleep(.15);
+    except:
+        LAClose(SA);
+        print('Error!')
+        return False
+
 
 def YFEshot():
-    SA=LAOpen();time.sleep(.15);
-    for ii in range(100):
+    try:
+        SA=LAOpen();time.sleep(.15);
+        for ii in range(100):
+            newops0F=TraceFormatting(rch(1,SA),[25,500],1)[:26]
+            meanerr=np.sum(np.abs(pwtF[:26]-newops0F[:26])/pwtF[:26])/len(pwtF[:26])
+            if meanerr < 0.04: #.15
+                time.sleep(0.1);shotpush();time.sleep(0.1);
+                break
+            time.sleep(.1)
         newops0F=TraceFormatting(rch(1,SA),[25,500],1)[:26]
         meanerr=np.sum(np.abs(pwtF[:26]-newops0F[:26])/pwtF[:26])/len(pwtF[:26])
-        if meanerr < 0.04: #.15
-            time.sleep(0.1);shotpush();time.sleep(0.1);
-            break
-        time.sleep(.1)
-    newops0F=TraceFormatting(rch(1,SA),[25,500],1)[:26]
-    meanerr=np.sum(np.abs(pwtF[:26]-newops0F[:26])/pwtF[:26])/len(pwtF[:26])
-    print(meanerr)
-    epll([pwtF,newops0F])
-    LAClose(SA);time.sleep(.15);
-    psacqx()
-    psefc()
+        print(meanerr)
+        epll([pwtF,newops0F])
+        LAClose(SA);time.sleep(.15);
+        psacqx()
+        psefc()
+    except:
+        LAClose(SA);
+        print('Error!')
+        return False
 
 def YFEerr():
     xq=list();eq=list();
-    SA=LAOpen();time.sleep(.15);
-    ii=0
     try:
+        SA=LAOpen();
+        ii=0
+        time.sleep(.15);
         while True:
             ii+=1
             if ii%1000 == 0:
@@ -2920,6 +2970,10 @@ def YFEerr():
     except KeyboardInterrupt:
         LAClose(SA);time.sleep(.15);
         return xq,eq
+    finally:
+        LAClose(SA);
+        print('Error!')
+        return False
 
 def efft(errlistQ,time_stepQ):
     #time_step1=0.1
@@ -3203,10 +3257,17 @@ def psacqx_old(save_flag=True, RunNumQQ=900):#replaced when LeCroyA came back
         except:
             LClose(SL1);time.sleep(0.15);
             LAClose(SLA);time.sleep(0.15);
+            print('Error!')
+            return False
 
-    SH=HOpen(); time.sleep(.15);
-    wtoday.append(ReadPulseHeights(SH,0));
-    time.sleep(.15); HClose(SH); time.sleep(.15);
+    try:
+        SH=HOpen(); time.sleep(.15);
+        wtoday.append(ReadPulseHeights(SH,0));
+        time.sleep(.15); HClose(SH); time.sleep(.15);
+    except:
+        HClose(SH);
+        print('Error!')
+        return False
 
     #SLA=LAOpen(); time.sleep(.15); 
     #htoday.append(rch(1,SLA))
@@ -3310,25 +3371,37 @@ def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
     if cIJ:
         RunName=RunName+'IJ'
 
-    SLA=LAOpen(); time.sleep(.15);#changed back to all LeCroyA
-    weichYFE00=np.array(weichYFE1w(1,SLA));
-    weich1in1wCD=np.array(weich1in1w(2,SLA));
-    time.sleep(.15); LAClose(SLA); time.sleep(.15);
+    try:
+        SLA=LAOpen(); time.sleep(.15);#changed back to all LeCroyA
+        weichYFE00=np.array(weichYFE1w(1,SLA));
+        weich1in1wCD=np.array(weich1in1w(2,SLA));
+        time.sleep(.15); LAClose(SLA); time.sleep(.15);
+    except:
+        LAClose(SLA);
+        print('Error! SLA')
 
-    SLB=LBOpen(); time.sleep(.15);
-    weich2in1wAB=np.array(weich2in1w(1,SLB)); weich2in1wEF=np.array(weich2in1w(2,SLB));
-    weich2in1wGH=np.array(weich2in1w(3,SLB)); weich2in1wIJ=np.array(weich2in1w(4,SLB));
-    time.sleep(.15); LBClose(SLB); time.sleep(.15);
+    try:
+        SLB=LBOpen(); time.sleep(.15);
+        weich2in1wAB=np.array(weich2in1w(1,SLB)); weich2in1wEF=np.array(weich2in1w(2,SLB));
+        weich2in1wGH=np.array(weich2in1w(3,SLB)); weich2in1wIJ=np.array(weich2in1w(4,SLB));
+        time.sleep(.15); LBClose(SLB); time.sleep(.15);
+    except:
+        LBClose(SLB);
+        print('Error! SLB')
 
     #SL2=L2Open(); time.sleep(.15);
     #weich1=np.array(weich(1,SL2)); weich2=np.array(weich(2,SL2));
     #weich3=np.array(weich(3,SL2)); weich4=np.array(weich(4,SL2));
     #time.sleep(.15); L2Close(SL2); time.sleep(.15);
 
-    SL2=L2Open(); time.sleep(.15);
-    weich2in2wAB=np.array(weich2in2w(1,SL2)); weich2in2wEF=np.array(weich2in2w(2,SL2));
-    weich2in2wGH=np.array(weich2in2w(3,SL2)); weich2in2wIJ=np.array(weich2in2w(4,SL2));
-    time.sleep(.15); L2Close(SL2); time.sleep(.15);
+    try:
+        SL2=L2Open(); time.sleep(.15);
+        weich2in2wAB=np.array(weich2in2w(1,SL2)); weich2in2wEF=np.array(weich2in2w(2,SL2));
+        weich2in2wGH=np.array(weich2in2w(3,SL2)); weich2in2wIJ=np.array(weich2in2w(4,SL2));
+        time.sleep(.15); L2Close(SL2); time.sleep(.15);
+    except:
+        L2Close(SL2);
+        print('Error! SL2')
 
     total_print=''
     #check so don't overwrite if someone forgets to change run number
@@ -3410,9 +3483,13 @@ def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
 #            LClose(SL1);time.sleep(0.15);
 #            LAClose(SLA);time.sleep(0.15);
 
-    SH=HOpen(); time.sleep(.15);
-    wtoday.append(ReadPulseHeights(SH,0));
-    time.sleep(.15); HClose(SH); time.sleep(.15);
+    try:
+        SH=HOpen(); time.sleep(.15);
+        wtoday.append(ReadPulseHeights(SH,0));
+        time.sleep(.15); HClose(SH); time.sleep(.15);
+    except:
+        HClose(SH);
+        print('Error! SH')
 
     #SLA=LAOpen(); time.sleep(.15); 
     #htoday.append(rch(1,SLA))
@@ -3479,8 +3556,6 @@ def psefc(JreqQ=0,AQQ=0.0):
         Jreq=np.sum(PulseEnergies)*Jscale #65
     else:
         Jreq=JreqQ
-    
-    
     if Jreq>42:
         BumpQ=2#3 or 4
     else:
@@ -3496,68 +3571,46 @@ def psefc(JreqQ=0,AQQ=0.0):
         wupd=wIter2(stoday[-1],np.array(wtoday[-1])/28000.,Psns,SSs,Jreq,mapnow,AQ)
     else:
         print('No shots yet today; beginning with pre-loaded shape')
-        SH=HOpen(); time.sleep(.15);
-        wupd=ReadPulseHeights(SH,0); time.sleep(.15);
-        HClose(SH); time.sleep(.15);
+        try:
+            SH=HOpen(); time.sleep(.15);
+            wupd=ReadPulseHeights(SH,0); time.sleep(.15);
+            HClose(SH); time.sleep(.15);
+        except:
+            HClose(SH);
+            print('Error! SH')
     return wupd
     ##EXECUTE THIS FILE FIRST TO DETERMINE THE UPDATED WAVEFORM
-
-def psefc10Hz_old(pwt=0,numIterQ=50,AQQ=0.03): #replaced once LeCroyA fixed
-    evrpv=EpicsSignal('EVR:MEC:USR01:TRIG7:TEC')
-    evrpv.put(43)
-    psfpQ=psfilepath()
-    SA=LAOpen();time.sleep(.15);S=HOpen();time.sleep(.15)
-    try:
-        temp20200123=pickle.load(open(psfpQ+'temp20200123c.p','rb'))##added c for converted pickle; just use 5002 later for len()
-        #pwt=ExponentialWave2(500,.2,900,.47,0,len(temp20200123[0]))
-        if pwt == 0:
-            pwt=ExponentialWave2(500,.19,1500,1.1,0,len(temp20200123[0]))#LinearWave2(500,0.6,1500,0.6,0.0,len(temp20200123[0]))
-        #pwt=np.array(ExponentialWave2(500,.015,1200,0.02,0,len(temp20200123[0])))+np.array(ExponentialWave2(1201,.2,1600,.47,0,len(temp20200123[0])))##.0375,.04;.3,.7
-        meanerr=[]
-        for ii in range(numIterQ):
-            if (ii+1)%50 == 0:
-                print(str('Iter:'+str(ii+1)))
-            ops0=rch(1,SA)####added.215 when 200mV/div instead of 100mV/div
-            rph=ReadPulseHeights(S,0)
-            pwtF=np.array(TraceFormatting(pwt,[25,500],1))
-            ops0F=TraceFormatting(ops0,[25,500],1)
-            #epll([pwtF,ops0F])
-            meanerr.append(np.sum(np.abs(pwtF[:26]-ops0F[:26])/pwtF[:26])/len(pwtF[:26]));
-            usa0=UpdatingShapingAlgorithm(pwtF,ops0F,np.array(rph)/28000.,AQQ)#.075#.25
-            usa0FE=FixEdges(usa0,[10],[[98,100]])
-            #usa0FE=FixEdges(usa0,[3,4.25],[[.98*100/8.0,100/8.0],[98,100]])
-            #epll([rph,usa0FE*28000.])
-            WritePulseHeights(S,0,usa0FE*28000.)
-        epll([pwtF,ops0F])
-        epl(meanerr)
-        HClose(S);time.sleep(.15);LAClose(SA);time.sleep(.15)
-    except:
-        HClose(S);time.sleep(.15);LAClose(SA);time.sleep(.15)
 
 def psefc10Hz(pwt=0,numIterQ=50,AQQ=0.03,displayPlot=False):#was B; replaced when LeCroyA fixed
     evrpv=EpicsSignal('EVR:MEC:USR01:TRIG7:TEC')
     evrpv.put(43)
-    psfpQ=psfilepath()
-    SLA=LAOpen();time.sleep(.15);S=HOpen();time.sleep(.15);#replaced w/LeCroyA
+    psfpQ=psfilepath()   
+    SSs=pickle.load(open(psfpQ+'SSs.p','rb'))
+    Psns=pickle.load(open(psfpQ+'Psns.p','rb'))
     try:
+        SLA=LAOpen();time.sleep(.15);S=HOpen();time.sleep(.15);#replaced w/LeCroyA
+        ops00=rch(1,SLA);time.sleep(0.1);
         meanerr=[]
         print('Start loop')
         for ii in range(numIterQ):
             if (ii+1)%50 == 0:
                 print(str('Iter:'+str(ii+1)))
-            ops0=rch(1,SLA)####added.215 when 200mV/div instead of 100mV/div
-            time.sleep(0.05);
-            rph=ReadPulseHeights(S,0);time.sleep(0.025);
-            pwtF=np.array(TraceFormatting(pwt,[25,500],1))
-            #ops0F=TraceFormatting(ops0,[25,500],1)
-            ops0F=TraceFormatting(ops0,[5,100],1)
-            #epll([pwtF,ops0F])
-            meanerr.append(np.sum(np.abs(pwtF[:26]-ops0F[:26])/pwtF[:26])/len(pwtF[:26]));
-            usa0=UpdatingShapingAlgorithm(pwtF,ops0F,np.array(rph)/28000.,AQQ)#.075#.25
-            usa0FE=FixEdges(usa0,[10],[[98,100]])
-            #usa0FE=FixEdges(usa0,[3,4.25],[[.98*100/8.0,100/8.0],[98,100]])
-            #epll([rph,usa0FE*28000.])
-            WritePulseHeights(S,0,usa0FE*28000.);time.sleep(0.05);
+            ops0=rch(1,SLA);time.sleep(0.025);####added.215 when 200mV/div instead of 100mV/div
+            if all(ops0 == ops00):
+                print('No scope update detected... no feedback applied!')
+            else:
+                rph=ReadPulseHeights(S,0);time.sleep(0.025);
+                pwtF=np.array(TraceFormatting2(pwt,[25,500],1))
+                #ops0F=TraceFormatting(ops0,[25,500],1)
+                ops0F=TraceFormatting2(ops0,[5,100],1)
+                #epll([pwtF,ops0F])
+                meanerr.append(np.sum(np.abs(pwtF[:26]-ops0F[:26])/pwtF[:26])/len(pwtF[:26]));
+                usa0=UpdatingShapingAlgorithm(pwtF,ops0F,np.array(rph)/28000.,AQQ)#.075#.25
+                usa0FE=FixEdges(usa0,Psns,SSs)
+                #usa0FE=FixEdges(usa0,[3,4.25],[[.98*100/8.0,100/8.0],[98,100]])
+                #epll([rph,usa0FE*28000.])
+                WritePulseHeights(S,0,usa0FE*28000.);time.sleep(0.05);
+                ops00=ops0[:]
         if displayPlot:
             epll([pwtF,ops0F])
             epl(meanerr)
@@ -3566,54 +3619,19 @@ def psefc10Hz(pwt=0,numIterQ=50,AQQ=0.03,displayPlot=False):#was B; replaced whe
         print('Failed')
         HClose(S);time.sleep(.15);LAClose(SLA);time.sleep(.15)#replace w/ LeCroyA
 
-def psefc10Hz2(pwt=0,numIterQ=50,goof=True,AQQ=0.03):
-    #make up for messed up scope readout???
-    evrpv=EpicsSignal('EVR:MEC:USR01:TRIG7:TEC')
-    evrpv.put(43)
-    psfpQ=psfilepath()
-    SA=LAOpen();time.sleep(.15);S=HOpen();time.sleep(.15)
-    try:
-        temp20200123=pickle.load(open(psfpQ+'temp20200123c.p','rb'))##added c for converted pickle; just use 5002 later for len()
-        #pwt=ExponentialWave2(500,.2,900,.47,0,len(temp20200123[0]))
-        if pwt == 0:
-            pwt=ExponentialWave2(500,.19,1500,1.1,0,len(temp20200123[0]))#LinearWave2(500,0.6,1500,0.6,0.0,len(temp20200123[0]))
-        #pwt=np.array(ExponentialWave2(500,.015,1200,0.02,0,len(temp20200123[0])))+np.array(ExponentialWave2(1201,.2,1600,.47,0,len(temp20200123[0])))##.0375,.04;.3,.7
-        meanerr=[]
-        for ii in range(numIterQ):
-            if (ii+1)%50 == 0:
-                print(str('Iter:'+str(ii+1)))
-            ops0=rch(1,SA)####added.215 when 200mV/div instead of 100mV/div
-            rph=ReadPulseHeights(S,0)
-            if goof == True:
-                gooflist = list(2*np.array(rph))+list(2*np.array(rph))
-                gooflist[::2] = rph
-                gooflist[1::2]= rph
-                rph = gooflist[:]
-            pwtF=np.array(TraceFormatting(pwt,[25,500],1))
-            ops0F=TraceFormatting(ops0,[25,500],1)
-            #epll([pwtF,ops0F])
-            meanerr.append(np.sum(np.abs(pwtF[:26]-ops0F[:26])/pwtF[:26])/len(pwtF[:26]));
-            usa0=UpdatingShapingAlgorithm(pwtF,ops0F,np.array(rph)/28000.,AQQ)#.075#.25
-            usa0FE=FixEdges(usa0,[10],[[98,100]])
-            #usa0FE=FixEdges(usa0,[3,4.25],[[.98*100/8.0,100/8.0],[98,100]])
-            #epll([rph,usa0FE*28000.])
-            WritePulseHeights(S,0,usa0FE*28000.)
-        epll([pwtF,ops0F])
-        epl(meanerr)
-        HClose(S);time.sleep(.15);LAClose(SA);time.sleep(.15)
-    except:
-        print('Exception')
-        HClose(S);time.sleep(.15);LAClose(SA);time.sleep(.15)
-
 def psupd(newwavQ):
     ###EXECUTE THIS FILE ONCE YOU'RE SATISFIED WITH THE WAVEFORM UPDATE
     pshostcheck()
     wupdt=newwavQ[:]
     if max(wupdt) < 1.5:
         wupdt=28000.0*np.array(wupdt)
-    SH=HOpen(); time.sleep(.15);
-    WritePulseHeights(SH,0,wupdt); time.sleep(.15);
-    HClose(SH); time.sleep(.15);
+    try:
+        SH=HOpen(); time.sleep(.15);
+        WritePulseHeights(SH,0,wupdt); time.sleep(.15);
+        HClose(SH); time.sleep(.15);
+    except:
+        HClose(SH);
+        print('Error!')
 
 def psall(upd_loop=True):
     pshostcheck()
@@ -3650,9 +3668,10 @@ def psloadwvfm(RecipeStrQ,WvGoal10HzHint=False):
             print('No hint for 10Hz waveform available. MSG: \''+WvGoal10Hz+'\'')
     try:
         psupd(NewWvfm)
-        print('New waveform loaded: ')
+        print('New waveform loaded! ')
     except:
         print('Failed to load new waveform.')
+    
 
 
 
@@ -3661,9 +3680,12 @@ def pssavewvfm(PsnsQ=0,SSsQ=0,YFEgetQ=0,TargetwlistDateQ='curr',TargetwindexQ=0,
     print('Saving timestamp: '+datetime.now().strftime('%A, %d. %B %Y %I:%M:%S%p'))
     if TargetwlistDateQ == 'curr':
         print('Using current Highland waveform...')
-        S=HOpen(); time.sleep(0.15);
-        NewWvfmQ=ReadPulseHeights(S,0);
-        HClose(S); time.sleep(0.15);
+        try:
+            S=HOpen(); time.sleep(0.15);
+            NewWvfmQ=ReadPulseHeights(S,0);
+            HClose(S); time.sleep(0.15);
+        except:
+            HClose(S);
         try:
             wlastarr=pickle.load(open(psfilepath()+'w'+DateString()+'.p','rb'))
             if wlastarr[-1] == NewWvfmQ:
@@ -3763,7 +3785,7 @@ def psviewwvfm(RecipeStrQ='none',TargetwlistDateQ='curr',TargetwindexQ=0,WvGoal1
         return NewWvfm
 
 
-def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1,displayPlotQ=False):
+def psrefrwvfm(RecipeStrQ,numStepsQ=25,stepSizeQ=0.25,displayPlotQ=False):
     pshostcheck()
     pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
@@ -3795,56 +3817,70 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=100,stepSizeQ=0.1,displayPlotQ=False):
     print('Closing all shutters...')
     for ii in range(6):
         ttlpvlist[ii].put(1);#close all the shutters
-    time.sleep(4)
-    #check if laser is on
-    if np.sum(YFEget(display=False)) < 400:
-        if np.sum(YFEget(display=False)) < 20:
-            print('WARNING: YFE seems to be off... Attempting to turn on YFE...')
-            YFEon();
-        else:
-            print('WARNING: eDrive currents seem low...')
-            prechk = False
-    #turn off bias dither; AUTO is 0; MAN is 1
-    if pvMBCmode.get() != 1:
-        print('Turning off MBC bias dither...',end='',flush=True);
-        currbias=pvMBCbias.get();
-        pvMBCmode.put(1);#set bias mode to MAN
-        for ii in range(3):
-           time.sleep(1);print('..',end='',flush=True);
-        print('*');
-        pvMBCbias.put(currbias+10);
-        print('Testing bias responsivity...',end='',flush=True);
-        for ii in range(2):
-           time.sleep(1);print('..',end='',flush=True);
-        if np.abs(pvMBCbias.get() - (currbias+10)) < 3:
-            pvMBCbias.put(currbias);
-            for ii in range(2):
-                time.sleep(1);print('..',end='',flush=True);
+    try:#used to make sure shutters re-open even in case of error or KeyboardInterrupt
+        time.sleep(4)
+        #check if laser is on
+        if np.sum(YFEget(display=False)) < 400:
+            if np.sum(YFEget(display=False)) < 20:
+                print('WARNING: YFE seems to be off... Attempting to turn on YFE...')
+                YFEon();
+            else:
+                print('WARNING: eDrive currents seem low...')
+                prechk = False
+        #turn off bias dither; AUTO is 0; MAN is 1
+        if pvMBCmode.get() != 1:
+            print('Turning off MBC bias dither...',end='',flush=True);
+            currbias=pvMBCbias.get();
+            pvMBCmode.put(1);#set bias mode to MAN
+            for ii in range(3):
+               time.sleep(1);print('..',end='',flush=True);
             print('*');
-        else:
-            print('*')
-            print('WARNING: MBC not responding!!')
-    #else:
-    #    print('MBC is not safe! Resetting the MBC...')#problem is here...
-    #    resetMBC();
-    #set and enable 10Hz output
-    if pvslicerEC.get() != 43:
-        pvslicerenable.put(0)
-        pvslicerEC.put(43)
-    if pvslicerenable.get() != 1:
+            pvMBCbias.put(currbias+10);
+            print('Testing bias responsivity...',end='',flush=True);
+            for ii in range(2):
+               time.sleep(1);print('..',end='',flush=True);
+            if np.abs(pvMBCbias.get() - (currbias+10)) < 3:
+                pvMBCbias.put(currbias);
+                for ii in range(2):
+                    time.sleep(1);print('..',end='',flush=True);
+                print('*');
+            else:
+                print('*')
+                print('WARNING: MBC not responding!!')
+        #else:
+        #    print('MBC is not safe! Resetting the MBC...')#problem is here...
+        #    resetMBC();
+        #set and enable 10Hz output
+        if pvslicerEC.get() != 43:
+            pvslicerenable.put(0)
+            pvslicerEC.put(43)
+        if pvslicerenable.get() != 1:
+            pvslicerenable.put(1)
+        #run the update code
+        print('Refreshing the YFE wavefront...')
+        psefc10Hz(pwt=yfegoal,numIterQ=numStepsQ,AQQ=stepSizeQ,displayPlot=displayPlotQ)
+        #reset to single shot on pulse picker
+        pvslicerenable.put(0);time.sleep(0.5);
+        pvslicerEC.put(182);time.sleep(0.5);
         pvslicerenable.put(1)
-    #run the update code
-    print('Refreshing the YFE wavefront...')
-    psefc10Hz(pwt=yfegoal,numIterQ=numStepsQ,AQQ=stepSizeQ,displayPlot=displayPlotQ)
-    #reset to single shot on pulse picker
-    pvslicerenable.put(0);time.sleep(0.5);
-    pvslicerEC.put(182);time.sleep(0.5);
-    pvslicerenable.put(1)
-    #re-open shutters
-    print('Opening all shutters...')
-    for ii in range(6):
-        ttlpvlist[ii].put(1);#close all the shutters
-    time.sleep(4)
+        #re-open shutters
+        print('Opening all shutters...')
+        for ii in range(6):
+            ttlpvlist[ii].put(1);#close all the shutters
+        resetMBC();
+        YFEsetall(True,displayQ=False);
+    except:#used to make sure shutters re-open even in case of error or KeyboardInterrupt
+        #reset to single shot on pulse picker
+        pvslicerenable.put(0);time.sleep(0.5);
+        pvslicerEC.put(182);time.sleep(0.5);
+        pvslicerenable.put(1)
+        #re-open shutters
+        print('Opening all shutters...')
+        for ii in range(6):
+            ttlpvlist[ii].put(1);#close all the shutters
+        resetMBC();
+        YFEsetall(True,displayQ=False);
+        
 
 
 def pspreshot():
@@ -3888,7 +3924,8 @@ def pspreshot():
             prechk = False
     else:
         print('MBC is not safe! Resetting the MBC...')
-        resetMBC();
+        resetMBC();##up above, check emission AND check currents???
+        YFEsetall(True,displayQ=False)
         pspreshot()
         prechk = False
     if pvlampEC.get() != 182:
@@ -3932,10 +3969,10 @@ def pspostshot(save_flag_q=True):
     pvslicerenable.put(0)
     pshostcheck()
     psacqx(save_flag=save_flag_q)#took out _noLecroyA
-    psefc();
+    #psefc();
     print('Resetting bias tracking...')
     resetMBC();
-    YFEon();
+    YFEsetall(True);
 
 
 def save_scope_to_eLog(chan_to_eLog=2):
@@ -3981,7 +4018,7 @@ def save_scope_to_eLog(chan_to_eLog=2):
     except:
         print('Failed to auto-save to eLog!')
 
-def SHG_opt():#check for trace height;#All shutters must start in the open state... 
+def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start in the open state... 
     print('Running this routine requires ALL TTL shutters to begin in the open state! Is this the current state of the laser? [enter y/n]')
     checkprompt=input();
     if checkprompt.lower() != 'y':
@@ -3989,6 +4026,7 @@ def SHG_opt():#check for trace height;#All shutters must start in the open state
         return
     else:
         print('OK, I hope you know what you\'re doing!')
+    HWPon('all',set_T=1)
     pvslicerEC=EpicsSignal('EVR:MEC:USR01:TRIG7:EC_RBV',write_pv='EVR:MEC:USR01:TRIG7:TEC')#slicer event code; needs 43
     pvslicerenable=EpicsSignal('EVR:MEC:USR01:TRIG7:TCTL') #slicer enable; 0=off,1=on
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
@@ -3998,8 +4036,11 @@ def SHG_opt():#check for trace height;#All shutters must start in the open state
     if np.sum(YFEget(display=False)) < 100:
         print('Check YFE before optimizing!')
     optwvfm=pickle.load(open(psfilepath()+'opttrace.p','rb'));
-    S=HOpen();time.sleep(.15);oldwvfm=ReadPulseHeights(S,0);time.sleep(.15);
-    WritePulseHeights(S,0,optwvfm);time.sleep(.15);HClose(S);time.sleep(.15);
+    try:
+        S=HOpen();time.sleep(.15);oldwvfm=ReadPulseHeights(S,0);time.sleep(.15);
+        WritePulseHeights(S,0,optwvfm);time.sleep(.15);HClose(S);time.sleep(.15);
+    except:
+        HClose(S);
     ttlpvlist=[EpicsSignal('MEC:LAS:TTL:0'+str(ii+1)) for ii in range(6)]
     motprefix='MEC:LAS:MMN:';motnamelist=['22','24','17','18'];#VAL/RBV
     SHGpvlist=[EpicsSignal(motprefix+motname+'.RBV',write_pv=motprefix+motname+'.VAL') for motname in motnamelist];
@@ -4011,53 +4052,122 @@ def SHG_opt():#check for trace height;#All shutters must start in the open state
     startposlist=[SHGrbv.get() for SHGrbv in SHGpvlist];
     alphEFGH=0.5;
     for ii in range(4):
-        if armlist[ii] in ['EF','GH']:
-            alph=alphEFGH
-        else:
-            alph=1
-        SHGpvlist[ii].put(startposlist[ii]+alph*(-.1+.01*0))
+        if armlist[ii] in armsQ:#only prep the stage if it's going to be used
+            if armlist[ii] in ['EF','GH']:
+                alph=alphEFGH
+            else:
+                alph=1
+            SHGpvlist[ii].put(startposlist[ii]+alph*(-.1+.01*0))
+    currentshutter=0;#trying to re-open a shutter in case of failure...
     try:
         SLA=LAOpen();time.sleep(.15);#changed to LecroyA since repair
         for ii in range(4):
-            if armlist[ii] in ['EF','GH']:
-                alph=alphEFGH;
+            if armlist[ii] in armsQ:
+                if armlist[ii] in ['EF','GH']:
+                    alph=alphEFGH;
+                else:
+                    alph=1;
+                print('Begin optimizing '+armlist[ii]+'... ',end='',flush=True);
+                shgarmdatax,shgarmdatay=[],[]
+                ttlpvlist[ii].put(1);currentshutter=ii;time.sleep(4);print('Shutter opened!');#open one shutter
+                for jj in range(11):
+                    print('.',end='',flush=True)
+                    SHGpvlist[ii].put(startposlist[ii]+alph*(-.1+.02*(jj)));time.sleep(2.5);#step to new position
+                    curr_x=SHGpvlist[ii].get();curr_y=np.max(rch(3,SLA));time.sleep(.15);#in testing, max is more stable than sum
+                    if curr_y > 0.005:#threshold so don't skew fit with noise; max is ~~10x this
+                        shgarmdatax.append(curr_x);shgarmdatay.append(curr_y);#save x and y
+                    print('.',end='',flush=True)
+                print('*')
+                qfit=np.polyfit(shgarmdatax,shgarmdatay,2);newpos=qfit[1]/(-2*qfit[0]);#find fit and new max
+                if np.abs(startposlist[ii]-newpos)<.15:
+                    SHGpvlist[ii].put(newpos)
+                    print('SHG position on arm '+armlist[ii]+' changed from '+str(round(startposlist[ii],4))+' to '+str(round(newpos,4)))
+                else:
+                    print('Failed! New SHG position on arm '+armlist[ii]+' seems too far off... '+str(round(newpos,4))+' from '+str(round(startposlist[ii],4))+'... Restoring...')
+                    SHGpvlist[ii].put(startposlist[ii])
+                ttlpvlist[ii].put(1);currentshutter=0;#close that shutter;
+                xpq=np.arange(startposlist[ii]+alph*(-.1+.02*(-1)),startposlist[ii]+alph*(-.1+.02*(11)),.0001);
+                qfitp=np.poly1d(qfit);
+                epllxy([[shgarmdatax,shgarmdatay],[xpq,qfitp(xpq)]],xlb=armlist[ii])
             else:
-                alph=1;
-            print('Begin optimizing '+armlist[ii]+'... ',end='',flush=True);
-            shgarmdatax,shgarmdatay=[],[]
-            ttlpvlist[ii].put(1);time.sleep(4);print('Shutter opened!');#open one shutter
-            for jj in range(11):
-                print('.',end='',flush=True)
-                SHGpvlist[ii].put(startposlist[ii]+alph*(-.1+.02*(jj)));time.sleep(2.5);#step to new position
-                curr_x=SHGpvlist[ii].get();curr_y=np.max(rch(3,SLA));time.sleep(.15);
-                if curr_y > 0.005:#threshold so don't skew fit with noise; max is ~~10x this
-                    shgarmdatax.append(curr_x);shgarmdatay.append(curr_y);#save x and y
-                print('.',end='',flush=True)
-            print('*')
-            qfit=np.polyfit(shgarmdatax,shgarmdatay,2);newpos=qfit[1]/(-2*qfit[0]);#find fit and new max
-            if np.abs(startposlist[ii]-newpos)<.15:
-                SHGpvlist[ii].put(newpos)
-                print('SHG position on arm '+armlist[ii]+' changed from '+str(round(startposlist[ii],4))+' to '+str(round(newpos,4)))
-            else:
-                print('Failed! New SHG position on arm '+armlist[ii]+' seems too far off... '+str(round(newpos,4))+' from '+str(round(startposlist[ii],4))+'... Restoring...')
-                SHGpvlist[ii].put(startposlist[ii])
-            ttlpvlist[ii].put(1);#close that shutter;
-            xpq=np.arange(startposlist[ii]+alph*(-.1+.02*(-1)),startposlist[ii]+alph*(-.1+.02*(11)),.0001);
-            qfitp=np.poly1d(qfit);
-            epllxy([[shgarmdatax,shgarmdatay],[xpq,qfitp(xpq)]],xlb=armlist[ii])
+                print('Skipping '+armlist[ii]+'...')
+                pass
         LAClose(SLA);time.sleep(.15);#changed to LeCroyA
     except:
-        print('Failed! Restoring original values! (Probably you need to punch a shutter too!)')
+        print('Failed! Restoring original values and attempting to re-open most-recent shutter!)')
         LAClose(SLA);time.sleep(.15);#changed to LeCroyA
+        if currentshutter > 0:
+            ttlpvlist[currentshutter].put(1);
         for ii in range(4):
             SHGpvlist[ii].put(startposlist[ii])
     time.sleep(2);#need time so that last shutter trigger ends before trying to open IJ
+    try:
+        S=HOpen();time.sleep(.15);WritePulseHeights(S,0,oldwvfm);time.sleep(.15);HClose(S);time.sleep(.15);
+    except:
+        HClose(S);
+        print('Error! Check waveform!')
+    pvslicerenable.put(0);#disable PC before re-opening shutters
     for ii in range(6):
-        ttlpvlist[ii].put(1);#open all the shutters        
+        ttlpvlist[ii].put(1);#open all the shutters
+    resetMBC();YFEsetall(True);#reset bias...
 
-    S=HOpen();time.sleep(.15);WritePulseHeights(S,0,oldwvfm);time.sleep(.15);HClose(S);time.sleep(.15);
 
-    
-    
+
+def gentec_refresh():
+    pvabir=['MEC:LAS:GENTEC:02:CH1:DESCRIPTION','MEC:LAS:GENTEC:02:CH1:SET_WAVLEN','MEC:LAS:GENTEC:02:CH1:SCALE','MEC:LAS:GENTEC:02:CH1:SET_TRIGMODE','MEC:LAS:GENTEC:02:CH1:SET_TRIGLVL','MEC:LAS:GENTEC:02:CH1:SET_ATTENUATOR']
+    abirvals=['AB IRsamp',1053,'1',1,2,0]
+    pvefir=['MEC:LAS:GENTEC:02:CH2:DESCRIPTION','MEC:LAS:GENTEC:02:CH2:SET_WAVLEN','MEC:LAS:GENTEC:02:CH2:SCALE','MEC:LAS:GENTEC:02:CH2:SET_TRIGMODE','MEC:LAS:GENTEC:02:CH2:SET_TRIGLVL','MEC:LAS:GENTEC:02:CH2:SET_ATTENUATOR']
+    efirvals=['EF IRsamp',1053,'1',1,2,0]
+    pvghir=['MEC:LAS:GENTEC:01:CH1:DESCRIPTION','MEC:LAS:GENTEC:01:CH1:SET_WAVLEN','MEC:LAS:GENTEC:01:CH1:SCALE','MEC:LAS:GENTEC:01:CH1:SET_TRIGMODE','MEC:LAS:GENTEC:01:CH1:SET_TRIGLVL','MEC:LAS:GENTEC:01:CH1:SET_ATTENUATOR']
+    ghirvals=['GH IRsamp',1053,'1',1,2,0]
+    pvijir=['MEC:LAS:GENTEC:01:CH2:DESCRIPTION','MEC:LAS:GENTEC:01:CH2:SET_WAVLEN','MEC:LAS:GENTEC:01:CH2:SCALE','MEC:LAS:GENTEC:01:CH2:SET_TRIGMODE','MEC:LAS:GENTEC:01:CH2:SET_TRIGLVL','MEC:LAS:GENTEC:01:CH2:SET_ATTENUATOR']
+    ijirvals=['IJ IRsamp',1053,'1',1,2,0]
+
+    pvab2w=['MEC:LAS:GENTEC:03:CH1:DESCRIPTION','MEC:LAS:GENTEC:03:CH1:SET_WAVLEN','MEC:LAS:GENTEC:03:CH1:SCALE','MEC:LAS:GENTEC:03:CH1:SET_TRIGMODE','MEC:LAS:GENTEC:03:CH1:SET_TRIGLVL','MEC:LAS:GENTEC:03:CH1:SET_ATTENUATOR']
+    ab2wvals=['AB 2wsamp',527,'300m',1,2,0]
+    pvef2w=['MEC:LAS:GENTEC:03:CH2:DESCRIPTION','MEC:LAS:GENTEC:03:CH2:SET_WAVLEN','MEC:LAS:GENTEC:03:CH2:SCALE','MEC:LAS:GENTEC:03:CH2:SET_TRIGMODE','MEC:LAS:GENTEC:03:CH2:SET_TRIGLVL','MEC:LAS:GENTEC:03:CH2:SET_ATTENUATOR']
+    ef2wvals=['EF 2wsamp',527,'300m',1,2,0]
+    pvgh2w=['MEC:LAS:GENTEC:04:CH1:DESCRIPTION','MEC:LAS:GENTEC:04:CH1:SET_WAVLEN','MEC:LAS:GENTEC:04:CH1:SCALE','MEC:LAS:GENTEC:04:CH1:SET_TRIGMODE','MEC:LAS:GENTEC:04:CH1:SET_TRIGLVL','MEC:LAS:GENTEC:04:CH1:SET_ATTENUATOR']
+    gh2wvals=['GH 2wsamp',527,'300m',1,2,0]
+    pvij2w=['MEC:LAS:GENTEC:04:CH2:DESCRIPTION','MEC:LAS:GENTEC:04:CH2:SET_WAVLEN','MEC:LAS:GENTEC:04:CH2:SCALE','MEC:LAS:GENTEC:04:CH2:SET_TRIGMODE','MEC:LAS:GENTEC:04:CH2:SET_TRIGLVL','MEC:LAS:GENTEC:04:CH2:SET_ATTENUATOR']
+    ij2wvals=['IJ 2wsamp',527,'300m',1,2,0]
+
+    pveast=['MEC:GENTEC:01:CH1:DESCRIPTION','MEC:GENTEC:01:CH1:SET_WAVLEN','MEC:GENTEC:01:CH1:SCALE','MEC:GENTEC:01:CH1:SET_TRIGMODE','MEC:GENTEC:01:CH1:SET_TRIGLVL','MEC:GENTEC:01:CH1:SET_ATTENUATOR']
+    eastvals=['East GHIJ, short pulse',527,'100',1,2,1]
+
+    pvwest=['MEC:GENTEC:01:CH2:DESCRIPTION','MEC:GENTEC:01:CH2:SET_WAVLEN','MEC:GENTEC:01:CH2:SCALE','MEC:GENTEC:01:CH2:SET_TRIGMODE','MEC:GENTEC:01:CH2:SET_TRIGLVL','MEC:GENTEC:01:CH2:SET_ATTENUATOR']
+    westvals=['West ABEF',527,'100',1,2,1]
+
+    pvgroups = [pvabir,pvefir,pvghir,pvijir,pvab2w,pvef2w,pvgh2w,pvij2w,pveast,pvwest]
+    valgroups = [abirvals,efirvals,ghirvals,ijirvals,ab2wvals,ef2wvals,gh2wvals,ij2wvals,eastvals,westvals]
+    for pvgroup,valgroup in zip(pvgroups,valgroups):
+        for pvx,valx in zip(pvgroup,valgroup):
+            temppv=EpicsSignal(pvx)
+            temppv.put(valx)
+
+def smooth_wvfm(wvfm_in):
+    wvfm_out=wvfm_in[:]
+    for ii in range(len(wvfm_in)-2):
+        wvfm_out[ii+1]=.25*wvfm_in[ii]+.5*wvfm_in[ii+1]+.25*wvfm_in[ii+2]
+    return wvfm_out
+
+def E_coeff_refresh():
+    pvlist=['MEC:LAS:FLOAT:'+str(ii) for ii in range(31,41)];
+    inddesclist=['YFE','CD1w','AB1w','EF1w','GH1w','IJ1w','AB2w','EF2w','GH2w','IJ2w']
+    desclist=['E_coeff_'+inddesc for inddesc in inddesclist]
+    valulist=[.3578,0.5971,224.0,177.5,307.4*0.849,113.2,111.0,187.9,182.1,123.5]
+    for jj in range(len(pvlist)):
+        temppv1=EpicsSignal(str(pvlist[jj]+'.DESC'));temppv2=EpicsSignal(pvlist[jj]);
+        temppv1.put(desclist[jj]);temppv2.put(valulist[jj]);
+
+def E_synth_refresh():
+    pvlist=['MEC:LAS:FLOAT:'+str(ii).zfill(2) for ii in range(1,11)];
+    inddesclist=['YFE','CD1w','AB1w','EF1w','GH1w','IJ1w','AB2w','EF2w','GH2w','IJ2w']
+    desclist=['E_synth_'+inddesc for inddesc in inddesclist]
+#    valulist=[.3578,0.5971,224.0,177.5,307.4*0.849,113.2,111.0,187.9,182.1,123.5]
+    for jj in range(len(pvlist)):
+        temppv1=EpicsSignal(str(pvlist[jj]+'.DESC'));#temppv2=EpicsSignal(pvlist[jj]);
+        temppv1.put(desclist[jj]);#temppv2.put(valulist[jj]);
+
 def reloadchk():
-    print('Reload check: 1209')
+    print('Reload check: 20210304')
