@@ -1907,7 +1907,11 @@ def FixEdges(WavF,DurationListQ,StartStopListQ):
                 fWavF[ii]=28000
     return fWavF
 
-def isMBCsafe():
+def MBCmodecheck():
+    pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
+    return pvMBCmode.get()
+
+def isMBCsafe():#re-write checks as individual functions
     pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
     pvMBCsetpt=EpicsSignal('MEC:LPL:MBC:01:AutoCalibration.VAL',write_pv='MEC:LPL:MBC:01:AutoCalibration') #QUAD=0,MIN=1,MAX=2
@@ -2003,8 +2007,28 @@ def resetMBC():#includes YFEOff() at beginning, but must explicitly ask later to
             waitloop = False
     return
 
+def YFEoncheck(display=True):
+    YFEadd='MEC:LPL:LCO:0'
+    YFEamp=['2','3','5','6','1','4']
+    YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL',':ClearFault']
+    statuslist=[]
+    for ii in range(len(YFEamp)):
+        temprbvemispv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[4])
+        statuslist.append(temprbvemispv.get())#check emission
+    if np.sum(statuslist)==0:
+        YFEonbool=False
+    if 0<np.sum(statuslist)<6:
+        print('Warning: YFE seems to be partially on/off.')
+        YFEonbool=False
+    if np.sum(statuslist)==6:
+        YFEonbool=True
+    if display:
+        print('Current status: '+str(statuslist))
+    return YFEonbool
 
 def YFEon():
+    if YFEoncheck(display=False):
+        print('YFE emission already enabled.');return
     pvPC=EpicsSignal('MEC:S60:PWR:01:Outlet:6:SetControlAction')
     if pvPC.get() != 1:
         pvPC.put(1)
@@ -2065,6 +2089,8 @@ def YFEoff():
         tempsetemispv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[5])
         tempsetcurrpv.put(0)#set current to 0
         tempsetemispv.put(0)#turn on emission
+    PFNmodepv=EpicsSignal('MEC:PFN:MODE')
+    PFNmodepv.put(0)#makes sure glass chillers turn off when YFEoff... people have been leaving them on
     print('YFE LASER OFF')
     return
     
@@ -2722,7 +2748,7 @@ def HWPon(ArmStrQ,set_T=1):#fullON=1;fullOFF=0
     armlist=['AB','EF','GH','IJ'];
     if (set_T<0) or (set_T>1):
         set_T=1;print('Error: set_T must be between 0 and 1! Using set_T=1 instead...')
-    if ArmStrQ == 'all':
+    if ArmStrQ.lower() == 'all':
         ArmStrQ = 'ABEFGHIJ'
     HWPABpv=EpicsSignal('MEC:NS1:MMS:02.VAL');HWPABpv2=EpicsSignal('MEC:NS1:MMS:02.RBV');
     HWPEFpv=EpicsSignal('MEC:NS1:MMS:01.VAL');HWPEFpv2=EpicsSignal('MEC:NS1:MMS:01.RBV');
@@ -2758,7 +2784,7 @@ def HWPon(ArmStrQ,set_T=1):#fullON=1;fullOFF=0
     return
 
 def HWPoff(ArmStrQ):#can be deleted -- just use set_T=0
-    if ArmStrQ == 'all':
+    if ArmStrQ.lower() == 'all':
         ArmStrQ = 'ABEFGHIJ'
     HWPABpv=EpicsSignal('MEC:NS1:MMS:02.RBV',write_pv='MEC:NS1:MMS:02.VAL')
     HWPEFpv=EpicsSignal('MEC:NS1:MMS:01.RBV',write_pv='MEC:NS1:MMS:01.VAL')
@@ -2775,7 +2801,7 @@ def HWPoff(ArmStrQ):#can be deleted -- just use set_T=0
     return
     
 def PFNon(ArmStrQ):
-    if ArmStrQ == 'all':
+    if ArmStrQ.lower() == 'all':
         ArmStrQ = 'ABCDEFGHIJ'
     PFNmodepv=EpicsSignal('MEC:PFN:MODE')
     PFNmodepv.put(0)
@@ -2807,14 +2833,11 @@ def PFNon(ArmStrQ):
         PFNIenpv.put(1)
     if ('J' in ArmStrQ) or ('j' in ArmStrQ):
         PFNJenpv.put(1)
-    time.sleep(2)
-    PFNmodepv.put(1)
-    time.sleep(3.5)
-    PFNmodepv.put(2)
+    time.sleep(2);PFNmodepv.put(1);time.sleep(3.5);PFNmodepv.put(2);
     return
 
 def PFNoff(ArmStrQ):
-    if ArmStrQ == 'all':
+    if ArmStrQ.lower() == 'all':
         ArmStrQ = 'ABCDEFGHIJ'
     PFNmodepv=EpicsSignal('MEC:PFN:MODE')
     PFNmodepv.put(0)
@@ -2846,16 +2869,13 @@ def PFNoff(ArmStrQ):
         PFNIenpv.put(0)
     if ('J' in ArmStrQ) or ('j' in ArmStrQ):
         PFNJenpv.put(0)
-    time.sleep(2)
-    PFNmodepv.put(1)
-    time.sleep(3.5)
-    PFNmodepv.put(2)
+    time.sleep(2);PFNmodepv.put(1);time.sleep(3.5);PFNmodepv.put(2);
     return
 
 def PFNonly(ArmStrQ):#delete and just use ARMonly?
     AllStrQ='ABEFGHIJ'
     AllStrq='abefghij'
-    if ArmStrQ == 'all':
+    if ArmStrQ.lower() == 'all':
         ArmStrQ = AllStrQ
     PFNmodepv=EpicsSignal('MEC:PFN:MODE')
     PFNmodepv.put(0)
@@ -2864,40 +2884,48 @@ def PFNonly(ArmStrQ):#delete and just use ARMonly?
         if (AllStrQ[ii] in ArmStrQ) or (AllStrq[ii] in ArmStrQ):
             temppv=EpicsSignal(str('MEC:PFN:CH'+str(ii+1)+':ENABLE'))
             temppv.put(1)
-            #HWPon(AllStrQ[ii])
         else:
             temppv=EpicsSignal(str('MEC:PFN:CH'+str(ii+1)+':ENABLE'))
             temppv.put(0)
-            #HWPoff(AllStrQ[ii])
-    time.sleep(2)
-    PFNmodepv.put(1)
-    time.sleep(3.5)
-    PFNmodepv.put(2)
+    time.sleep(2);PFNmodepv.put(1);time.sleep(3.5);PFNmodepv.put(2);
     return
 
 
-def ARMonly(ArmStrQ):
-    AllStrQ='ABEFGHIJ'
-    AllStrq='abefghij'
-    if ArmStrQ == 'all':
-        ArmStrQ = AllStrQ
-    PFNmodepv=EpicsSignal('MEC:PFN:MODE')
-    PFNmodepv.put(0)
-    time.sleep(2)
-    for ii in range(len(AllStrQ)):
-        if (AllStrQ[ii] in ArmStrQ) or (AllStrq[ii] in ArmStrQ):
-            temppv=EpicsSignal(str('MEC:PFN:CH'+str(ii+1)+':ENABLE'))
-            temppv.put(1)
-            HWPon(AllStrQ[ii],set_T=1)
-        else:
-            temppv=EpicsSignal(str('MEC:PFN:CH'+str(ii+1)+':ENABLE'))
-            temppv.put(0)
-            HWPon(AllStrQ[ii],set_T=0)
-    time.sleep(2)
-    PFNmodepv.put(1)
-    time.sleep(3.5)
-    PFNmodepv.put(2)
+def ARMonly(ArmStrQ,set_T=1):
+    HWPon(ArmStrQ,set_T=set_T)
+    PFNonly(ArmStrQ)
     return
+
+def TTL_shutter_status(display=True):
+    pvstatuslist=['MEC:LAS:FLOAT:'+str(ii) for ii in range(14,21)];
+    statuslist=[]
+    for eapv in pvstatuslist:
+        temppv=EpicsSignal(eapv);
+        statuslist.append(int(temppv.get()))#0=open,1=closed
+    if display:
+        shutlist=['AB','EF','GH','IJ','WEST 527','EAST 527','REGEN']
+        print('(0=out,1=in) '+', '.join([ea_shut+':'+str(ea_stat) for ea_shut,ea_stat in zip(shutlist,statuslist)]))
+    return statuslist
+
+def toggle_TTL_shutter(ArmStrQ,display=True):
+    AllStrq='abefghijwwxxrr';#ww is WEST 527, xx is EAST 527, rr is REGEN SHUT
+    if ArmStrQ.lower() == 'all':
+        ArmStrQ = 'abefghijwwxx'
+    if ArmStrQ.lower() == 'closeall':#reads status to find ones that are open and need closing
+        ArmStrQ=''.join([shutt for shutt,oshutt in zip(re.findall('..','abefghijwwxx'),TTL_shutter_status(display=False)[:-1]) if oshutt==0])
+    if ArmStrQ.lower() == 'openall':#reads status to find ones that are closed and need opening
+        ArmStrQ=''.join([shutt for shutt,oshutt in zip(re.findall('..','abefghijwwxx'),TTL_shutter_status(display=False)[:-1]) if oshutt==1])    
+    if display:
+        print('Initially: ',end='',flush=True)
+    statuslist=TTL_shutter_status(display=display)
+    for ii in range(len(AllStrq)//2):
+        if (AllStrq[2*ii] in ArmStrQ.lower()) or (AllStrq[2*ii+1] in ArmStrQ.lower()):
+            temppv1=EpicsSignal('MEC:LAS:TTL:0'+str(ii+1));temppv1.put(1);
+            temppv2=EpicsSignal('MEC:LAS:FLOAT:'+str(ii+14));temppv2.put((1+temppv2.get())%2);
+    if display:
+        print('Finally:   ',end='',flush=True)
+    statuslist=TTL_shutter_status(display=display)
+    return statuslist
 
 def shotpush():
     temppv1=EpicsSignal('EVR:MEC:USR01:TRIG7:TEC')
@@ -2928,7 +2956,6 @@ def YFEwatch(ShotNumQ):
         LAClose(SA);
         print('Error!')
         return False
-
 
 def YFEshot():
     try:
@@ -3785,7 +3812,7 @@ def psviewwvfm(RecipeStrQ='none',TargetwlistDateQ='curr',TargetwindexQ=0,WvGoal1
         return NewWvfm
 
 
-def psrefrwvfm(RecipeStrQ,numStepsQ=25,stepSizeQ=0.25,displayPlotQ=False):
+def psrefrwvfm(RecipeStrQ,numStepsQ=50,stepSizeQ=0.25,displayPlotQ=False):
     pshostcheck()
     pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
@@ -3804,21 +3831,22 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=25,stepSizeQ=0.25,displayPlotQ=False):
         print('Recipe file '+psfilepath()+'recipes/load'+RecipeStrQ+'.p\' not found.')
         return
     print('Hint text: '+WvGoal10Hz)
-    psparams=np.array(re.findall('Wave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10Hz),dtype=np.float32); 
+    pseparams=np.array(re.findall('ExponentialWave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10Hz),dtype=np.float32);
+    pslparams=np.array(re.findall('LinearWave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10Hz),dtype=np.float32);  
     yfegoal=LinearWave2(500,0,1025,0,0,5002);
-    if len(psparams) > 0:
-        for ii in range(len(psparams)): 
-            yfegoal+=ExponentialWave2(psparams[ii][0],psparams[ii][1],psparams[ii][2],psparams[ii][3],0,5002)
+    if (len(pslparams) > 0) or (len(pseparams) > 0):
+        for ii in range(len(pslparams)): 
+            yfegoal+=LinearWave2(pslparams[ii][0],pslparams[ii][1],pslparams[ii][2],pslparams[ii][3],0,5002)
+        for ii in range(len(pseparams)): 
+            yfegoal+=ExponentialWave2(pseparams[ii][0],pseparams[ii][1],pseparams[ii][2],pseparams[ii][3],0,5002)
     else:
         print('No wave extracted: '+WvGoal10Hz)
         return
     #close the shutters
-    ttlpvlist=[EpicsSignal('MEC:LAS:TTL:0'+str(ii+1)) for ii in range(6)]
     print('Closing all shutters...')
-    for ii in range(6):
-        ttlpvlist[ii].put(1);#close all the shutters
+    toggle_TTL_shutter('closeall',display=False)#close all the shutters
+    time.sleep(4)
     try:#used to make sure shutters re-open even in case of error or KeyboardInterrupt
-        time.sleep(4)
         #check if laser is on
         if np.sum(YFEget(display=False)) < 400:
             if np.sum(YFEget(display=False)) < 20:
@@ -3865,8 +3893,7 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=25,stepSizeQ=0.25,displayPlotQ=False):
         pvslicerenable.put(1)
         #re-open shutters
         print('Opening all shutters...')
-        for ii in range(6):
-            ttlpvlist[ii].put(1);#close all the shutters
+        toggle_TTL_shutter('openall',display=False);#open all the shutters
         resetMBC();
         YFEsetall(True,displayQ=False);
     except:#used to make sure shutters re-open even in case of error or KeyboardInterrupt
@@ -3876,8 +3903,7 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=25,stepSizeQ=0.25,displayPlotQ=False):
         pvslicerenable.put(1)
         #re-open shutters
         print('Opening all shutters...')
-        for ii in range(6):
-            ttlpvlist[ii].put(1);#close all the shutters
+        toggle_TTL_shutter('openall',display=False);#open all the shutters
         resetMBC();
         YFEsetall(True,displayQ=False);
         
@@ -3895,13 +3921,13 @@ def pspreshot():
     pvlampenable=EpicsSignal('EVR:MEC:USR01:TRIG6:TCTL') #lamp enable;
     pvslicerenable=EpicsSignal('EVR:MEC:USR01:TRIG7:TCTL') #slicer enable;
     prechk=True
-    if np.sum(YFEget(display=False)) < 400:
+    if not YFEoncheck(display=False):
+        print('WARNING: YFE seems to be off... Attempting to turn on YFE...')
+        YFEon();
+    if np.sum(YFEget(display=False)) < 550:
         if np.sum(YFEget(display=False)) < 20:
-            print('WARNING: YFE seems to be off... Attempting to turn on YFE...')
-            YFEon();
-        else:
-            print('WARNING: eDrive currents seem low...')
-            prechk = False
+            print('WARNING: YFE seems to be turned down. Attempting to turn up YFE...')
+            YFEsetall(True,displayQ=True)
     if isMBCsafe():
         print('Turning off MBC bias dither...',end='',flush=True);
         currbias=pvMBCbias.get();
@@ -3952,13 +3978,18 @@ def pspreshot():
     print('The waveplate settings are: '+wpstr[:-2])
     print('This is ~'+str(round(100*wpen,3))+'% of max energy.')
     print('Current pulse target is: '+str(pickle.load(open(psfilepath()+'Psns.p','rb')))+' ns, '+str(pickle.load(open(psfilepath()+'SSs.p','rb')))+' % of max power.')
-    not_charging='';headchanlist=['CD','A','B','E','F','G','H','I','J'];
+    not_charging='';not_enabled='';headchanlist=['CD','A','B','E','F','G','H','I','J'];
     for ii in range(9):
         temppv1=EpicsSignal('MEC:PFN:CH'+str(ii)+':ENABLE_RBV');temppv2=EpicsSignal('MEC:PFN:CH'+str(ii)+':CHARGE_STATE');
-        if (temppv1.get()) and (temppv2.get() == 0):
+        if temppv1.get() == 0:
+            not_enabled+=headchanlist[ii]
+        if (temppv1.get() == 1) and (temppv2.get() == 0):
             not_charging+=headchanlist[ii]
     if len(not_charging)>0:
         print('** WARNING: The following heads are enabled but NOT charging: '+not_charging) 
+
+    toggle_TTL_shutter('openall',display=False);time.sleep(1.1);#make sure all shutters are open...
+    toggle_TTL_shutter(not_enabled,display=False)#close shutters that aren't enabled
     return prechk
     #waveform pre-check? verify shutters are open?
 
@@ -3970,6 +4001,7 @@ def pspostshot(save_flag_q=True):
     pshostcheck()
     psacqx(save_flag=save_flag_q)#took out _noLecroyA
     #psefc();
+    toggle_TTL_shutter('openall',display=False);#make sure all shutters are open again...
     print('Resetting bias tracking...')
     resetMBC();
     YFEsetall(True);
@@ -4017,9 +4049,26 @@ def save_scope_to_eLog(chan_to_eLog=2):
         print('Auto-saved to eLog.') 
     except:
         print('Failed to auto-save to eLog!')
-
+    
 def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start in the open state... 
-    print('Running this routine requires ALL TTL shutters to begin in the open state! Is this the current state of the laser? [enter y/n]')
+    print('Running this routine requires ALL TTL shutters to begin in the open state! The YFE must be on with the bias dither initially enabled!')
+    if np.sum(TTL_shutter_status(display=False)[-1]) > 0:
+        print('Warning! The shutters don\'t all appear to be open! ',end='',flush=True);TTL_shutter_status(display=True);
+    else:
+        print('(Shutters seem OK...)')
+    if not YFEoncheck(display=False):
+        print('Warning! The YFE doesn\'t appear to be on! ',end='',flush=True);YFEoncheck(display=True);
+    else:
+        print('(YFE emission seems OK...)')
+    if np.sum(YFEget(display=False)) < 550:
+        print('Warning! The YFE doesn\'t appear to be turned up! ');YFEget(display=True);
+    else:
+        print('(YFE current seems OK...)')
+    if MBCmodecheck() != 0:
+        print('(Warning! The MBC doesn\'t appear to be in AUTO mode!')
+    else:
+        print('(MBC mode seems OK...)')
+    print('Are you sure you are ready to proceed? [enter y/n]',end='',flush=True)
     checkprompt=input();
     if checkprompt.lower() != 'y':
         print('Try again later then!');
@@ -4031,7 +4080,7 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
     pvslicerenable=EpicsSignal('EVR:MEC:USR01:TRIG7:TCTL') #slicer enable; 0=off,1=on
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
     armlist=['AB','EF','GH','IJ']
-    YFEoff();YFEon();
+    #YFEoff();YFEon();
     pvMBCmode.put(1)#set MAN mode on MBC
     if np.sum(YFEget(display=False)) < 100:
         print('Check YFE before optimizing!')
@@ -4041,15 +4090,14 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
         WritePulseHeights(S,0,optwvfm);time.sleep(.15);HClose(S);time.sleep(.15);
     except:
         HClose(S);
-    ttlpvlist=[EpicsSignal('MEC:LAS:TTL:0'+str(ii+1)) for ii in range(6)]
     motprefix='MEC:LAS:MMN:';motnamelist=['22','24','17','18'];#VAL/RBV
     SHGpvlist=[EpicsSignal(motprefix+motname+'.RBV',write_pv=motprefix+motname+'.VAL') for motname in motnamelist];
     print('Closing all shutters...')
-    for ii in range(6):
-        ttlpvlist[ii].put(1);#close all the shutters
+    toggle_TTL_shutter('closeall',display=False);#close all the shutters
     time.sleep(4)
     pvslicerEC.put(43);pvslicerenable.put(1);#enable these...
     startposlist=[SHGrbv.get() for SHGrbv in SHGpvlist];
+    newposlist=startposlist[:]
     alphEFGH=0.5;
     for ii in range(4):
         if armlist[ii] in armsQ:#only prep the stage if it's going to be used
@@ -4069,7 +4117,7 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
                     alph=1;
                 print('Begin optimizing '+armlist[ii]+'... ',end='',flush=True);
                 shgarmdatax,shgarmdatay=[],[]
-                ttlpvlist[ii].put(1);currentshutter=ii;time.sleep(4);print('Shutter opened!');#open one shutter
+                toggle_TTL_shutter(armlist[ii],display=False);currentshutter=ii;time.sleep(4);print('Shutter opened!');#open one shutter
                 for jj in range(11):
                     print('.',end='',flush=True)
                     SHGpvlist[ii].put(startposlist[ii]+alph*(-.1+.02*(jj)));time.sleep(2.5);#step to new position
@@ -4080,12 +4128,12 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
                 print('*')
                 qfit=np.polyfit(shgarmdatax,shgarmdatay,2);newpos=qfit[1]/(-2*qfit[0]);#find fit and new max
                 if np.abs(startposlist[ii]-newpos)<.15:
-                    SHGpvlist[ii].put(newpos)
+                    SHGpvlist[ii].put(newpos);newposlist[ii]=newpos;
                     print('SHG position on arm '+armlist[ii]+' changed from '+str(round(startposlist[ii],4))+' to '+str(round(newpos,4)))
                 else:
                     print('Failed! New SHG position on arm '+armlist[ii]+' seems too far off... '+str(round(newpos,4))+' from '+str(round(startposlist[ii],4))+'... Restoring...')
                     SHGpvlist[ii].put(startposlist[ii])
-                ttlpvlist[ii].put(1);currentshutter=0;#close that shutter;
+                toggle_TTL_shutter(armlist[ii],display=False);currentshutter=0;#close that shutter;
                 xpq=np.arange(startposlist[ii]+alph*(-.1+.02*(-1)),startposlist[ii]+alph*(-.1+.02*(11)),.0001);
                 qfitp=np.poly1d(qfit);
                 epllxy([[shgarmdatax,shgarmdatay],[xpq,qfitp(xpq)]],xlb=armlist[ii])
@@ -4094,12 +4142,12 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
                 pass
         LAClose(SLA);time.sleep(.15);#changed to LeCroyA
     except:
-        print('Failed! Restoring original values and attempting to re-open most-recent shutter!)')
+        print('Failed! Restoring original values and attempting to re-open most-recent shutter... you should verify!')
         LAClose(SLA);time.sleep(.15);#changed to LeCroyA
         if currentshutter > 0:
-            ttlpvlist[currentshutter].put(1);
+            toggle_TTL_shutter(armlist[currentshutter],display=False);
         for ii in range(4):
-            SHGpvlist[ii].put(startposlist[ii])
+            SHGpvlist[ii].put(startposlist[ii]);newposlist[ii]=startposlist[ii];
     time.sleep(2);#need time so that last shutter trigger ends before trying to open IJ
     try:
         S=HOpen();time.sleep(.15);WritePulseHeights(S,0,oldwvfm);time.sleep(.15);HClose(S);time.sleep(.15);
@@ -4107,8 +4155,12 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
         HClose(S);
         print('Error! Check waveform!')
     pvslicerenable.put(0);#disable PC before re-opening shutters
-    for ii in range(6):
-        ttlpvlist[ii].put(1);#open all the shutters
+    datestamp=int(datetime.now().strftime('%Y%m%d%H%M%S'))
+    SHGlog=pickle.load(open(psfilepath()+'SHG_opt_log.p','rb'))
+    for ii in range(4):
+        SHGlog[ii].append([datestamp,newposlist[ii]])
+    pickle.dump(SHGlog,open(psfilepath()+'SHG_opt_log.p','wb'))
+    toggle_TTL_shutter('openall',display=False);#open all the shutters
     resetMBC();YFEsetall(True);#reset bias...
 
 
@@ -4164,10 +4216,45 @@ def E_synth_refresh():
     pvlist=['MEC:LAS:FLOAT:'+str(ii).zfill(2) for ii in range(1,11)];
     inddesclist=['YFE','CD1w','AB1w','EF1w','GH1w','IJ1w','AB2w','EF2w','GH2w','IJ2w']
     desclist=['E_synth_'+inddesc for inddesc in inddesclist]
-#    valulist=[.3578,0.5971,224.0,177.5,307.4*0.849,113.2,111.0,187.9,182.1,123.5]
+
+    pveyfe=EpicsSignal('MEC:LAS:LEM:03:A:CUR_DISP');eyfe=pveyfe.get();
+    pve1in=EpicsSignal('MEC:LAS:LEM:03:B:CUR_DISP');e1in=pve1in.get();
+    pveab1w=EpicsSignal('MEC:LAS:GENTEC:02:CH1:MEAS');eab1w=pveab1w.get();
+    pveef1w=EpicsSignal('MEC:LAS:GENTEC:02:CH2:MEAS');eef1w=pveef1w.get();
+    pvegh1w=EpicsSignal('MEC:LAS:GENTEC:01:CH1:MEAS');egh1w=pvegh1w.get();
+    pveij1w=EpicsSignal('MEC:LAS:GENTEC:01:CH2:MEAS');eij1w=pveij1w.get();
+    pveab2w=EpicsSignal('MEC:LAS:GENTEC:03:CH1:MEAS');eab2w=pveab2w.get();
+    pveef2w=EpicsSignal('MEC:LAS:GENTEC:03:CH2:MEAS');eef2w=pveef2w.get();
+    pvegh2w=EpicsSignal('MEC:LAS:GENTEC:04:CH1:MEAS');egh2w=pvegh2w.get();
+    pveij2w=EpicsSignal('MEC:LAS:GENTEC:04:CH2:MEAS');eij2w=pveij2w.get();
+    energyarr=np.array([eyfe,e1in,eab1w,eef1w,egh1w,eij1w,eab2w,eef2w,egh2w,eij2w])
+    
+    coefflist=[]
+    for ii in range(31,41):
+        temppv=EpicsSignal('MEC:LAS:FLOAT:'+str(ii));
+        coefflist.append(temppv.get());
+    
+    valulist=energyarr*np.array(coefflist)
     for jj in range(len(pvlist)):
-        temppv1=EpicsSignal(str(pvlist[jj]+'.DESC'));#temppv2=EpicsSignal(pvlist[jj]);
-        temppv1.put(desclist[jj]);#temppv2.put(valulist[jj]);
+        temppv1=EpicsSignal(str(pvlist[jj]+'.DESC'));temppv2=EpicsSignal(pvlist[jj]);
+        temppv1.put(desclist[jj]);temppv2.put(valulist[jj]);
+
+def TTL_shutter_refresh():
+    pvlist=['MEC:LAS:FLOAT:'+str(ii) for ii in range(14,21)];
+    inddesclist=['AB','EF','GH','IJ','WEST (ABEF)','EAST (GHIJ)','Regen']
+    desclist=[inddesc+' shutter state' for inddesc in inddesclist]
+    valulist=[0,0,0,0,0,0,0];
+    print('This will reset the shutter counter! Are you sure you want to continue? [y/n]',end='',flush=True)
+    checkprompt=input();
+    if checkprompt.lower() != 'y':
+        print('Try again later then!');
+        return
+    else:
+        print('OK, I hope you know what you\'re doing!')
+    print('Resetting shutter PV statuses... Please insure all shutters are actually open!!')
+    for jj in range(len(pvlist)):
+        temppv1=EpicsSignal(str(pvlist[jj]+'.DESC'));temppv2=EpicsSignal(pvlist[jj]);
+        temppv1.put(desclist[jj]);temppv2.put(valulist[jj]);
 
 def reloadchk():
-    print('Reload check: 20210304')
+    print('Reload check: 20210312')
