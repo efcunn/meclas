@@ -2416,7 +2416,7 @@ def EG():
     egh=pvegh.get()
     pveij=EpicsSignal('MEC:LAS:GENTEC:04:CH2:MEAS')
     eij=pveij.get()
-    EAB,EEF,EGH,EIJ=round(eab/.00760/1.006/1.0412/1.0799/1.0478,4),round(eef/.00686/1.006/.9634/0.8410/0.9517,4),round(egh/.00655/1.015/.9692/0.883/0.9650,4),round(eij/.00608/1.015/1.1232/1.075/1.0863,4)
+    EAB,EEF,EGH,EIJ=round(1.17*eab/.00760/1.006/1.0412/1.0799/1.0478,4),round(.860*eef/.00686/1.006/.9634/0.8410/0.9517,4),round(.897*egh/.00655/1.015/.9692/0.883/0.9650,4),round(1.25*eij/.00608/1.015/1.1232/1.075/1.0863,4)
     guessarray=[[EAB,EEF,EGH,EIJ],round(EAB+EEF,4),round(EGH+EIJ,4),round(EAB+EEF+EGH+EIJ,4)]
     #print(guessarray)
     eabefpv=EpicsSignal('MEC:GENTEC:01:CH2:MEAS')
@@ -2908,20 +2908,24 @@ def TTL_shutter_status(display=True):
     return statuslist
 
 def toggle_TTL_shutter(ArmStrQ,display=True):
-    AllStrq='abefghijwwxxrr';#ww is WEST 527, xx is EAST 527, rr is REGEN SHUT
-    if ArmStrQ.lower() == 'all':
-        ArmStrQ = 'abefghijwwxx'
-    if ArmStrQ.lower() == 'closeall':#reads status to find ones that are open and need closing
-        ArmStrQ=''.join([shutt for shutt,oshutt in zip(re.findall('..','abefghijwwxx'),TTL_shutter_status(display=False)[:-1]) if oshutt==0])
-    if ArmStrQ.lower() == 'openall':#reads status to find ones that are closed and need opening
-        ArmStrQ=''.join([shutt for shutt,oshutt in zip(re.findall('..','abefghijwwxx'),TTL_shutter_status(display=False)[:-1]) if oshutt==1])    
+    AllStrq='abefghijwwxxzz';#ww is WEST 527, xx is EAST 527, zz is REGEN SHUT
+    ArmStrQ=ArmStrQ.lower().replace('all','abefghijwwxx')
+    currTTLstate=TTL_shutter_status(display=False)[:-1];
+    if ArmStrQ.lower()[:4] == 'clos':
+        ArmStrQ=''.join(sorted(ArmStrQ[5:].lower()))
+        ArmStrQ=''.join([shutt for shutt,oshutt in zip(re.findall('..','abefghijwwxx'),currTTLstate) if oshutt==0 and shutt in ArmStrQ])
+    elif ArmStrQ.lower()[:4] == 'open':
+        ArmStrQ=''.join(sorted(ArmStrQ[4:].lower()))
+        ArmStrQ=''.join([shutt for shutt,oshutt in zip(re.findall('..','abefghijwwxx'),currTTLstate) if oshutt==1 and shutt in ArmStrQ])
+    else:
+        ArmStrQ=''.join(sorted(ArmStrQ.lower()))
     if display:
         print('Initially: ',end='',flush=True)
     statuslist=TTL_shutter_status(display=display)
     for ii in range(len(AllStrq)//2):
         if (AllStrq[2*ii] in ArmStrQ.lower()) or (AllStrq[2*ii+1] in ArmStrQ.lower()):
-            temppv1=EpicsSignal('MEC:LAS:TTL:0'+str(ii+1));temppv1.put(1);
-            temppv2=EpicsSignal('MEC:LAS:FLOAT:'+str(ii+14));temppv2.put((1+temppv2.get())%2);
+            temppv1=EpicsSignal('MEC:LAS:TTL:0'+str(ii+1));temppv2=EpicsSignal('MEC:LAS:FLOAT:'+str(ii+14));
+            temppv1.put(1);temppv2.put((1+temppv2.get())%2);
     if display:
         print('Finally:   ',end='',flush=True)
     statuslist=TTL_shutter_status(display=display)
@@ -3978,18 +3982,20 @@ def pspreshot():
     print('The waveplate settings are: '+wpstr[:-2])
     print('This is ~'+str(round(100*wpen,3))+'% of max energy.')
     print('Current pulse target is: '+str(pickle.load(open(psfilepath()+'Psns.p','rb')))+' ns, '+str(pickle.load(open(psfilepath()+'SSs.p','rb')))+' % of max power.')
-    not_charging='';not_enabled='';headchanlist=['CD','A','B','E','F','G','H','I','J'];
+    not_charging='';not_enabled='';yes_enabled='';headchanlist=['CD','A','B','E','F','G','H','I','J'];
     for ii in range(9):
         temppv1=EpicsSignal('MEC:PFN:CH'+str(ii)+':ENABLE_RBV');temppv2=EpicsSignal('MEC:PFN:CH'+str(ii)+':CHARGE_STATE');
         if temppv1.get() == 0:
             not_enabled+=headchanlist[ii]
+        if temppv1.get() == 1:
+            yes_enabled+=headchanlist[ii]
         if (temppv1.get() == 1) and (temppv2.get() == 0):
             not_charging+=headchanlist[ii]
     if len(not_charging)>0:
         print('** WARNING: The following heads are enabled but NOT charging: '+not_charging) 
 
-    toggle_TTL_shutter('openall',display=False);time.sleep(1.1);#make sure all shutters are open...
-    toggle_TTL_shutter(not_enabled,display=False)#close shutters that aren't enabled
+    toggle_TTL_shutter('open'+yes_enabled+'wwxx',display=False);time.sleep(1);#make sure all shutters are open...
+    toggle_TTL_shutter('close'+not_enabled,display=False)#close shutters that aren't enabled
     return prechk
     #waveform pre-check? verify shutters are open?
 
@@ -4117,7 +4123,7 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
                     alph=1;
                 print('Begin optimizing '+armlist[ii]+'... ',end='',flush=True);
                 shgarmdatax,shgarmdatay=[],[]
-                toggle_TTL_shutter(armlist[ii],display=False);currentshutter=ii;time.sleep(4);print('Shutter opened!');#open one shutter
+                toggle_TTL_shutter('open'+armlist[ii],display=False);currentshutter=ii;time.sleep(4);print('Shutter opened!');#open one shutter
                 for jj in range(11):
                     print('.',end='',flush=True)
                     SHGpvlist[ii].put(startposlist[ii]+alph*(-.1+.02*(jj)));time.sleep(2.5);#step to new position
@@ -4133,7 +4139,7 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
                 else:
                     print('Failed! New SHG position on arm '+armlist[ii]+' seems too far off... '+str(round(newpos,4))+' from '+str(round(startposlist[ii],4))+'... Restoring...')
                     SHGpvlist[ii].put(startposlist[ii])
-                toggle_TTL_shutter(armlist[ii],display=False);currentshutter=0;#close that shutter;
+                toggle_TTL_shutter('close'+armlist[ii],display=False);currentshutter=0;#close that shutter;
                 xpq=np.arange(startposlist[ii]+alph*(-.1+.02*(-1)),startposlist[ii]+alph*(-.1+.02*(11)),.0001);
                 qfitp=np.poly1d(qfit);
                 epllxy([[shgarmdatax,shgarmdatay],[xpq,qfitp(xpq)]],xlb=armlist[ii])
@@ -4145,7 +4151,7 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
         print('Failed! Restoring original values and attempting to re-open most-recent shutter... you should verify!')
         LAClose(SLA);time.sleep(.15);#changed to LeCroyA
         if currentshutter > 0:
-            toggle_TTL_shutter(armlist[currentshutter],display=False);
+            toggle_TTL_shutter('open'+armlist[currentshutter],display=False);
         for ii in range(4):
             SHGpvlist[ii].put(startposlist[ii]);newposlist[ii]=startposlist[ii];
     time.sleep(2);#need time so that last shutter trigger ends before trying to open IJ
