@@ -40,6 +40,11 @@ import elog
 #from pcdsdaq.ext_scripts import get_run_number
 from pcdsdaq.ext_scripts import *
 
+import glob
+import pandas as pd
+import stat
+import getpass
+
 def Hex1Byte(num):
     return '{0:02x}'.format(int(num)%(0xff+1))
 
@@ -1736,9 +1741,9 @@ def epllxy(llistxyq,xlb='none',ylb='none'):
     df1=plt.figure()
     for ii in range(len(llistxyq)):
         plt.plot(llistxyq[ii][0],llistxyq[ii][1]);
-    if xlb is not 'none':
+    if xlb != 'none':
         plt.xlabel(xlb)
-    if ylb is not 'none':
+    if ylb != 'none':
         plt.ylabel(ylb)
     df1.show()
     return
@@ -1883,7 +1888,8 @@ def FixEdges(WavF,DurationListQ,StartStopListQ):
     FirstPix=0#was 50
     DurListQ=np.cumsum([0]+DurationListQ)
     fWavF=WavF[:]
-    fWavF[FirstPix]=fWavF[FirstPix+1]
+    fWavF[FirstPix+1]=fWavF[FirstPix+2]*1.05
+    fWavF[FirstPix]=fWavF[FirstPix+1]*1.1
     DisconCount=0
     ContCount=0
     if len(StartStopListQ)>1:
@@ -1912,7 +1918,7 @@ def MBCmodecheck():
     return pvMBCmode.get()
 
 def isMBCsafe():#re-write checks as individual functions
-    pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
+    pvMBCpower=EpicsSignal('MEC:64B:PWR:2:Outlet:8:SetControlAction')#WAS 'MEC:S60:PWR:01:Outlet:7:SetControlAction'#read AND write:1=ON,2=OFF
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
     pvMBCsetpt=EpicsSignal('MEC:LPL:MBC:01:AutoCalibration.VAL',write_pv='MEC:LPL:MBC:01:AutoCalibration') #QUAD=0,MIN=1,MAX=2
     pvMBCbias=EpicsSignal('MEC:LPL:MBC:01:BiasValue_RBV',write_pv='MEC:LPL:MBC:01:BiasValue')
@@ -1949,8 +1955,27 @@ def isMBCsafe():#re-write checks as individual functions
     else:
         return False
 
+def resetHighland():
+    pvAWG=EpicsSignal('MEC:64B:PWR:2:Outlet:1:SetControlAction')#read AND write:1=ON,2=OFF
+    print('Powering off Highland AWG, waiting 3sec...',end='',flush=True);
+    pvAWG.put(2);
+    for ii in range(3):
+        time.sleep(1);print('..',end='',flush=True);
+    print('*')
+    print('Rebooting Highland AWG, waiting 10sec...',end='',flush=True)
+    pvAWG.put(1);
+    for ii in range(10):
+        time.sleep(1);print('..',end='',flush=True);
+    print('*')
+    try:
+        S=HOpen();time.sleep(0.15);
+        ReadStatus(S,0);time.sleep(0.15);
+        HClose(S);time.sleep(0.15);
+    except:
+        HClose(S);time.sleep(0.15);
+
 def resetMBC():#includes YFEOff() at beginning, but must explicitly ask later to turn YFE back on w/ YFEOn() or YFEsetall(True)
-    pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
+    pvMBCpower=EpicsSignal('MEC:64B:PWR:2:Outlet:8:SetControlAction')#WAS 'MEC:S60:PWR:01:Outlet:7:SetControlAction'#read AND write:1=ON,2=OFF
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
     pvMBCsetpt=EpicsSignal('MEC:LPL:MBC:01:AutoCalibration.VAL',write_pv='MEC:LPL:MBC:01:AutoCalibration') #QUAD=0,MIN=1,MAX=2
     pvMBCbias=EpicsSignal('MEC:LPL:MBC:01:BiasValue_RBV',write_pv='MEC:LPL:MBC:01:BiasValue')
@@ -1978,10 +2003,12 @@ def resetMBC():#includes YFEOff() at beginning, but must explicitly ask later to
         print('Setting MBC to MIN mode,starting scan...',end='',flush=True)
         pvMBCsetpt.put(1)
         time.sleep(2);print('*');
-    if not -7000<pvMBCbias.get()<7000:
+    inibias=pvMBCbias.get()
+    if not -7000<inibias<7000:
         print('MBC is out of range! Aborting and power-cycling...');
+        pvMBCbias.put((np.round(time.time()*1000)%2)*9000*np.sign(inibias));time.sleep(1);
         pvMBCpower.put(2);time.sleep(2);
-        resetMBC()
+        resetMBC();return
     biaschk=[]
     print('Checking the initial MBC bias level...',end='',flush=True)
     for ii in range(3):
@@ -2000,8 +2027,9 @@ def resetMBC():#includes YFEOff() at beginning, but must explicitly ask later to
             loopcnt+=1
             if loopcnt >= 15:
                 print('MBC bias level stability fail. Aborting and power-cycling...')
+                pvMBCbias.put((np.round(time.time()*1000)%2)*9000*np.sign(biaschk[-1]));time.sleep(1);
                 pvMBCpower.put(2);time.sleep(2);
-                resetMBC()
+                resetMBC();return
         else:
             print('MBC bias level stabilized... '+str(biaschk))
             waitloop = False
@@ -2032,6 +2060,12 @@ def YFEon():
     pvPC=EpicsSignal('MEC:S60:PWR:01:Outlet:6:SetControlAction')
     if pvPC.get() != 1:
         pvPC.put(1)
+    pvpump=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')
+    if pvpump.get() != 1:
+        pvpump.put(1)
+    pvPS1=EpicsSignal('MEC:S60:PWR:01:Outlet:1:SetControlAction')
+    if pvPS1.get() != 1:
+        pvPS1.put(1)
     steps=10
     YFEadd='MEC:LPL:LCO:0'
     YFEamp=['2','3','5','6','1','4']
@@ -2076,11 +2110,19 @@ def YFEon():
             return False
     if pvPC.get() != 1:
         print('Failed to turn on Pockels cell!')
+    if pvpump.get() != 1:
+        print('Failed to turn on scroll pump!')
+    if pvPS1.get() != 1:
+        print('Failed to turn on YFE PS1!')
     return True
 
 def YFEoff():
     pvPC=EpicsSignal('MEC:S60:PWR:01:Outlet:6:SetControlAction')
     pvPC.put(2)
+    pvpump=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')
+    pvpump.put(2)
+    pvPS1=EpicsSignal('MEC:S60:PWR:01:Outlet:1:SetControlAction')
+    pvPS1.put(2)
     YFEadd='MEC:LPL:LCO:0'
     YFEamp=['2','3','5','6','1','4']
     YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL']
@@ -2378,7 +2420,7 @@ def FETsurveyfull():
             qpixnomaxindex=np.mean([i for i,j in enumerate(qpixnodata) if j == qpixnomax])##could improve by changing to abbreviated centroid around peak, avoiding tail-end bump
             qptdatalist.append([2400+qpixnomaxindex,qpixnomax])
         qdatalist.append(qptdatalist)
-    pickle.dump(qdatalist,open(psfilepath()+'fullFETsurvey20181106.p','wb'))
+    pickledump2(qdatalist,psfilepath()+'fullFETsurvey20181106.p')
     time.sleep(.15)
     HClose(HSQ)
     time.sleep(.15)
@@ -2419,10 +2461,13 @@ def EG():
     EAB,EEF,EGH,EIJ=round(1.17*eab/.00760/1.006/1.0412/1.0799/1.0478,4),round(.860*eef/.00686/1.006/.9634/0.8410/0.9517,4),round(.897*egh/.00655/1.015/.9692/0.883/0.9650,4),round(1.25*eij/.00608/1.015/1.1232/1.075/1.0863,4)
     guessarray=[[EAB,EEF,EGH,EIJ],round(EAB+EEF,4),round(EGH+EIJ,4),round(EAB+EEF+EGH+EIJ,4)]
     #print(guessarray)
-    eabefpv=EpicsSignal('MEC:GENTEC:01:CH2:MEAS')
-    EABEF=eabefpv.get()
-    eghijpv=EpicsSignal('MEC:GENTEC:01:CH1:MEAS')
-    EGHIJ=eghijpv.get()
+    try:
+        eabefpv=EpicsSignal('MEC:GENTEC:01:CH2:MEAS')
+        EABEF=eabefpv.get()
+        eghijpv=EpicsSignal('MEC:GENTEC:01:CH1:MEAS')
+        EGHIJ=eghijpv.get()
+    except:
+        EABEF=-1;EGHIJ=-1
     realarray=[EABEF,EGHIJ,EABEF+EGHIJ]
     #print(realarray)
     return [guessarray,realarray]
@@ -2432,7 +2477,7 @@ def EG1wYFE1in():
     eyfe=pveyfe.get()
     pve1in=EpicsSignal('MEC:LAS:LEM:03:B:CUR_DISP')
     e1in=pve1in.get()
-    EYFE,E1IN=eyfe*.3578,e1in*0.5971
+    EYFE,E1IN=eyfe*0.3285-0.00039,e1in*0.5971#was 0.3578
     guessarray=[round(EYFE,4),round(E1IN,4)]
     return guessarray
 
@@ -2599,7 +2644,7 @@ def LasCoeff():
     
 def tempsave(FileNameQ):
     dumperQ=[weich(1,S2),weich(2,S2),weich(3,S2),weich(4,S2),LasCoeff()[0]*weich(1,S2)+LasCoeff()[1]*weich(2,S2)+LasCoeff()[2]*weich(3,S2)+LasCoeff()[3]*weich(4,S2),LasCoeff()*EG()[0][0]]
-    pickle.dump(dumperQ,open(str(FileNameQ)+'.p','wb'))
+    pickledump2(dumperQ,str(FileNameQ)+'.p')
     print(FileNameQ)
     print(dumperQ[-1])
     epll(dumperQ[:4])
@@ -2782,23 +2827,6 @@ def HWPon(ArmStrQ,set_T=1):#fullON=1;fullOFF=0
             if chklist[ii]:
                 print('Re-try on '+armlist[ii]+' failed!')
     return
-
-def HWPoff(ArmStrQ):#can be deleted -- just use set_T=0
-    if ArmStrQ.lower() == 'all':
-        ArmStrQ = 'ABEFGHIJ'
-    HWPABpv=EpicsSignal('MEC:NS1:MMS:02.RBV',write_pv='MEC:NS1:MMS:02.VAL')
-    HWPEFpv=EpicsSignal('MEC:NS1:MMS:01.RBV',write_pv='MEC:NS1:MMS:01.VAL')
-    HWPGHpv=EpicsSignal('MEC:LAS:MMN:30.RBV',write_pv='MEC:LAS:MMN:30.VAL')
-    HWPIJpv=EpicsSignal('MEC:LAS:MMN:29.RBV',write_pv='MEC:LAS:MMN:29.VAL')
-    if ('A' in ArmStrQ) or ('a' in ArmStrQ):# or ('B' in ArmStrQ) or ('b' in ArmStrQ):
-        HWPABpv.put(45)
-    if ('E' in ArmStrQ) or ('e' in ArmStrQ):# or ('F' in ArmStrQ) or ('f' in ArmStrQ):
-        HWPEFpv.put(45)
-    if ('G' in ArmStrQ) or ('g' in ArmStrQ):# or ('H' in ArmStrQ) or ('h' in ArmStrQ):
-        HWPGHpv.put(45)
-    if ('I' in ArmStrQ) or ('i' in ArmStrQ):# or ('J' in ArmStrQ) or ('j' in ArmStrQ):
-        HWPIJpv.put(45)
-    return
     
 def PFNon(ArmStrQ):
     if ArmStrQ.lower() == 'all':
@@ -2925,7 +2953,16 @@ def toggle_TTL_shutter(ArmStrQ,display=True):
     for ii in range(len(AllStrq)//2):
         if (AllStrq[2*ii] in ArmStrQ.lower()) or (AllStrq[2*ii+1] in ArmStrQ.lower()):
             temppv1=EpicsSignal('MEC:LAS:TTL:0'+str(ii+1));temppv2=EpicsSignal('MEC:LAS:FLOAT:'+str(ii+14));
-            temppv1.put(1);temppv2.put((1+temppv2.get())%2);
+            temppv1.put(1);
+    temppvdur=EpicsSignal('MEC:EK9K1:BO5:1.HIGH');
+    time.sleep(temppvdur.get()*0.5);
+    for ii in range(len(AllStrq)//2):
+        if (AllStrq[2*ii] in ArmStrQ.lower()) or (AllStrq[2*ii+1] in ArmStrQ.lower()):
+            temppv1=EpicsSignal('MEC:LAS:TTL:0'+str(ii+1));temppv2=EpicsSignal('MEC:LAS:FLOAT:'+str(ii+14));
+            if temppv1.get():
+                temppv2.put((1+temppv2.get())%2);
+            else:
+                print('Warning: no shutter toggle detected; status not updated! '+AllStrq[2*ii:2*ii+2])
     if display:
         print('Finally:   ',end='',flush=True)
     statuslist=TTL_shutter_status(display=display)
@@ -3054,7 +3091,7 @@ def PulseGoal(DurationListQ,StartStopListQ):#140 pt list with max at 1
     for ii in range((-1+len(DurListQ))):
         #SegmentsQ.append(LinearWave(51+(DurListQ[ii]*4),int(20000.*SSListQ[ii][0]/100.),51+(DurListQ[ii+1]*4),int(20000.*SSListQ[ii][1]/100.)))
         SegmentsQ.append(LinearWave(int(BeginPix+(DurListQ[ii]*4)),int(20000.*SSListQ[ii][0]/100.),int(BeginPix+(DurListQ[ii+1]*4)-1),int(20000.*SSListQ[ii][1]/100.)))
-    return np.append(np.delete(np.array(ComboWave(SegmentsQ)),DelListQ),[0]*len(DelListQ))
+    return np.append(np.delete(np.array(ComboWave(SegmentsQ)),np.array(DelListQ).astype(int)),[0]*len(DelListQ))
 
 def PulseMax(DurationListQ,StartStopListQ,zzJQ):#fixed normalization part
     #Get amplitude setting for segmented, arbitrary PulseGoal
@@ -3081,12 +3118,19 @@ def pshostcheck():
     try:
         hostname=socket.gethostname()
         if (hostname != 'mec-monitor') and (hostname != 'mec-daq') and (hostname != 'mec-laser'):
-            print('Host must be mec-monitor or mec-daq! Current host: '+hostname)
+            print('Host must be mec-monitor, mec-daq, or mec-laser! Current host: '+hostname)
             raise Exception
     except Exception:
         print('EXIT')
         #exit
         #sys.exit();
+    try:
+        curruser=getpass.getuser()
+        if curruser != 'mecopr':
+            print('Warning: you are logged in as '+curruser+', not as mecopr. Beware of permissions issues... You may even unwittingly cause some yourself!')
+    except:
+        print('Failed: could not ID current user!')
+    return
 
 def LMap():
     return [50,1000]
@@ -3101,7 +3145,13 @@ def psfilepath():
 def get_curr_exp(timeout=15): 
     script=SCRIPTS.format('mec','get_curr_exp') 
     exp=cache_script(script,timeout=timeout) 
-    return exp.lower().strip('\n') 
+    curr_exp=exp.lower().strip('\n')
+    try:
+        temppv=EpicsSignal('MEC:LAS:FLOAT:11.DESC')
+        temppv.put(curr_exp)
+    except:
+        temppv.put('mecxx####')
+    return curr_exp
 
 
 def psheaders():
@@ -3144,204 +3194,23 @@ def psheaders():
         #globals()['RunNum']
         globals()['RunNum']=get_run_number(hutch='mec',timeout=10)
     except:
-        print('No RunNum given, set to 900')
-        globals()['RunNum']=900
+        print('No RunNum given, set to 9000')
+        globals()['RunNum']=9000
     try:
         globals()['RunFilePath']
     except:
         #print('No RunFilePath given, set to '+psfpQ+'temp/')
         globals()['RunFilePath']=psfpQ+'temp/'
+    try:
+        temppv=EpicsSignal('MEC:LAS:FLOAT:11')
+        temppv.put(globals()['RunNum'])
+    except:
+        temppv.put(-1)
     return DateStr
         
 
 
-def psacqx_old(save_flag=True, RunNumQQ=900):#replaced when LeCroyA came back
-    pshostcheck()
-    DateStr=psheaders()
-    psfpQ=psfilepath()
-    #globals()['RunNum']=RunNumQQ
-    globals()['RunNum']=get_run_number(hutch='mec',timeout=10)
-    try:
-        RunNuQ=globals()['RunNum']
-    except:
-        #print('No RunNum given, set to 900')
-        globals()['RunNum']=900
-        RunNuQ=globals()['RunNum']
-    try:
-        fpQ=globals()['RunFilePath']
-    except:
-        #print('No RunFilePath given, set to '+psfpQ+'temp/')
-        globals()['RunFilePath']=psfpQ+'temp/'
-        fpQ=globals()['RunFilePath']
-    RunNumStr=str(RunNuQ).zfill(3)
-    RunName='run'+str(RunNumStr)+'_'# ##add 'test' at beginning for test
-    #fpQ='/reg/neh/operator/mecopr/experiments/optical_beam/ns_laser/pp/spare/'
-    #fpQ='/reg/neh/operator/mecopr/experiments/mecx37917/lecroy/'
-    #fpQ='/reg/neh/operator/mecopr/experiments/meclu6517/lecroy/'
-    #fpQ='/reg/neh/operator/mecopr/experiments/meck05717/lecroy/'
-    #fpQ='/reg/neh/operator/mecopr/experiments/meclv8018/lecroy/'
-    #ExpName='meclv8018'
-    ExpName=get_curr_exp()
-    fpQ='/reg/neh/operator/mecopr/experiments/'+ExpName+'/lecroy/'
-    if not os.path.exists(fpQ[-7]):
-        try:
-            os.makedirs(fpQ[-7]);print('Folder created successfully!');
-        except:
-            print('Failed to create '+fpQ[-7]+'!')
-    
-    if not os.path.exists(fpQ):
-        try:
-            os.makedirs(fpQ);print('Folder created successfully!');
-        except:
-            print('Failed to create '+fpQ+'!')
-    
-    [cAB,cEF,cGH,cIJ] = LasCoeff()
-##    cAB=pypsepics.get('MEC:PFN:CH1:ENABLE_RBV')*pypsepics.get('MEC:PFN:CH2:ENABLE_RBV')
-##    cEF=pypsepics.get('MEC:PFN:CH3:ENABLE_RBV')*pypsepics.get('MEC:PFN:CH4:ENABLE_RBV')
-##    cGH=pypsepics.get('MEC:PFN:CH5:ENABLE_RBV')*pypsepics.get('MEC:PFN:CH6:ENABLE_RBV')
-##    cIJ=pypsepics.get('MEC:PFN:CH7:ENABLE_RBV')*pypsepics.get('MEC:PFN:CH8:ENABLE_RBV')
-    if cAB:
-        RunName=RunName+'AB'
-    if cEF:
-        RunName=RunName+'EF'
-    if cGH:
-        RunName=RunName+'GH'
-    if cIJ:
-        RunName=RunName+'IJ'
-
-    SLA=LAOpen(); time.sleep(.15);
-    weichYFE00=np.array(weichYFE1w(1,SLA));
-    weich1in1wCD=np.array(weich1in1w(2,SLA));
-    time.sleep(.15); LAClose(SLA); time.sleep(.15);
-
-    SLB=LBOpen(); time.sleep(.15);
-    weich2in1wAB=np.array(weich2in1w(1,SLB)); weich2in1wEF=np.array(weich2in1w(2,SLB));
-    weich2in1wGH=np.array(weich2in1w(3,SLB)); weich2in1wIJ=np.array(weich2in1w(4,SLB));
-    time.sleep(.15); LBClose(SLB); time.sleep(.15);
-
-    #SL2=L2Open(); time.sleep(.15);
-    #weich1=np.array(weich(1,SL2)); weich2=np.array(weich(2,SL2));
-    #weich3=np.array(weich(3,SL2)); weich4=np.array(weich(4,SL2));
-    #time.sleep(.15); L2Close(SL2); time.sleep(.15);
-
-    SL2=L2Open(); time.sleep(.15);
-    weich2in2wAB=np.array(weich2in2w(1,SL2)); weich2in2wEF=np.array(weich2in2w(2,SL2));
-    weich2in2wGH=np.array(weich2in2w(3,SL2)); weich2in2wIJ=np.array(weich2in2w(4,SL2));
-    time.sleep(.15); L2Close(SL2); time.sleep(.15);
-
-    total_print=''
-    #check so don't overwrite if someone forgets to change run number
-
-    try:
-        olden=np.genfromtxt(fpQ+RunName+'energies.txt')
-        RunName=str(RunName+'DUPLICATE')
-        print(str('This run number already exists; run name '+RunName+' used'))
-        total_print+=str('This run number already exists; run name '+RunName+' used')
-        total_print+='\n'
-    except:
-        print(str('Run name: '+RunName+', shot number: '+str(len(stoday)+1)))
-        total_print+=str('Run name: '+RunName+', shot number: '+str(len(stoday)+1))
-        total_print+='\n'
-
-    print(datetime.now().strftime('%A, %d. %B %Y %I:%M%p'))
-    total_print+=str(datetime.now().strftime('%A, %d. %B %Y %I:%M%p'))
-    total_print+='\n'
-
-    if not save_flag:
-        print('This is a test run. Remove \'test\' from the beginning of the RunName at the top of psacqx.py if you want to save data.')
-
-    if save_flag:
-        np.savetxt(str(fpQ+RunName+'ch1.txt'),weich2in2wAB)
-        np.savetxt(str(fpQ+RunName+'ch2.txt'),weich2in2wEF)
-        np.savetxt(str(fpQ+RunName+'ch3.txt'),weich2in2wGH)
-        np.savetxt(str(fpQ+RunName+'ch4.txt'),weich2in2wIJ)
-
-    WeightedSum=cAB*weich2in2wAB+cEF*weich2in2wEF+cGH*weich2in2wGH+cIJ*weich2in2wIJ
-
-    if save_flag:
-        np.savetxt(str(fpQ+RunName+'chsum.txt'),WeightedSum)
-
-    globals()['PulseEnergies']=np.array(list(map(lambda x: round(x,2),EG()[0][0])))*np.array([cAB,cEF,cGH,cIJ])
-    EnMess='***'
-    EnMess2=[' AB: ',' EF: ',' GH: ',' IJ: ']
-    for ii in range(len(PulseEnergies)):
-        EnMess+=EnMess2[ii]
-        EnMess+=str(PulseEnergies[ii])
-        EnMess+=' J ***'
-    EnMess+=str(' total: '+str(np.sum(PulseEnergies))+' J ***')
-    print(EnMess)
-    total_print+=EnMess
-    total_print+='\n'
-    #epl(TraceFormatting(WeightedSum,mapnow,1))
-
-    if save_flag:
-        np.savetxt(str(fpQ+RunName+'energies.txt'),PulseEnergies)
-        eplsav(WeightedSum,str(fpQ+RunName+'_'+str(int(round(np.sum(PulseEnergies))))+'J'))
-        try:
-            SL1=LOpen();time.sleep(0.15);
-            TCCDiodeTrace=rch(2,SL1);time.sleep(0.15);
-            LClose(SL1);time.sleep(0.15);
-            SLA=LAOpen();time.sleep(0.15);
-            fsDiodeTrace=rch(3,SLA);time.sleep(0.15);
-            LAClose(SLA);time.sleep(0.15);
-            np.savetxt(str(fpQ+RunName+'_TCC+YFE+fsdiode.txt'),(TCCDiodeTrace,weichYFE00,fsDiodeTrace))
-        except:
-            LClose(SL1);time.sleep(0.15);
-            LAClose(SLA);time.sleep(0.15);
-            print('Error!')
-            return False
-
-    try:
-        SH=HOpen(); time.sleep(.15);
-        wtoday.append(ReadPulseHeights(SH,0));
-        time.sleep(.15); HClose(SH); time.sleep(.15);
-    except:
-        HClose(SH);
-        print('Error!')
-        return False
-
-    #SLA=LAOpen(); time.sleep(.15); 
-    #htoday.append(rch(1,SLA))
-    #ytoday.append(rch(1,SLA));
-    #LAClose(SLA); time.sleep(.15);
-    ytoday.append(weichYFE00)
-    s1in1wtoday.append(weich1in1wCD)
-    s42in1wtoday.append([weich2in1wAB,weich2in1wEF,weich2in1wGH,weich2in1wIJ])
-    s42in2wtoday.append([weich2in2wAB,weich2in2wEF,weich2in2wGH,weich2in2wIJ])
-    stoday.append(WeightedSum)
-
-    pickle.dump(wtoday,open(str(psfpQ+'w'+str(DateStr)+'.p'),'wb'));
-    #pickle.dump(htoday,open(str(psfpQ+'h'+str(DateStr)+'.p'),'wb'));
-    pickle.dump(ytoday,open(str(psfpQ+'y'+str(DateStr)+'.p'),'wb'));
-    pickle.dump(s1in1wtoday,open(str(psfpQ+'s1in1w'+str(DateStr)+'.p'),'wb'));
-    pickle.dump(s42in1wtoday,open(str(psfpQ+'s42in1w'+str(DateStr)+'.p'),'wb'));
-    pickle.dump(s42in2wtoday,open(str(psfpQ+'s42in2w'+str(DateStr)+'.p'),'wb'));
-    pickle.dump(stoday,open(str(psfpQ+'s'+str(DateStr)+'.p'),'wb'));
-
-    if save_flag:
-        mecel = elog.ELog({'experiment':ExpName},user='mecopr',pw=pickle.load(open(psfilepath()+'elogauth.p','rb'))) 
-        #mecElog.submit(total_print,file=str(fpQ+RunName+'_'+str(int(round(np.sum(PulseEnergies))))+'J.png'))
-        if RunNuQ != 900:
-            try:
-                mecel.post(total_print,attachments=[str(fpQ+RunName+'_'+str(int(round(np.sum(PulseEnergies))))+'J.png')],run=RunNuQ,tags=['laser'])
-                print('Auto-saved to eLog with run '+str(RunNuQ)) 
-            except:
-                try:
-                    mecel.post(total_print,attachments=[str(fpQ+RunName+'_'+str(int(round(np.sum(PulseEnergies))))+'J.png')],tags=['laser']) 
-                    print('Auto-saved to eLog')
-                except:
-                    print('Failed to auto-save to eLog')
-            
-
-    #execfile('tektest.py')
-
-    globals()['RunNum']+=1
-    
-    ##EXECUTE THIS FILE AFTER A SHOT TO SAVE YOUR SCOPE TRACE
-
-
-
-def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
+def psacqx(save_flag=True, RunNumQQ=9000):#was psacqx_noLecroyA()
     pshostcheck()
     DateStr=psheaders()
     psfpQ=psfilepath()
@@ -3354,16 +3223,21 @@ def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
     try:
         RunNuQ=globals()['RunNum']
     except:
-        #print('No RunNum given, set to 900')
-        globals()['RunNum']=900
+        #print('No RunNum given, set to 9000')
+        globals()['RunNum']=9000
         RunNuQ=globals()['RunNum']
+    try:
+        temppv=EpicsSignal('MEC:LAS:FLOAT:11')
+        temppv.put(globals()['RunNum'])
+    except:
+        temppv.put(-1)
     try:
         fpQ=globals()['RunFilePath']
     except:
         #print('No RunFilePath given, set to '+psfpQ+'temp/')
         globals()['RunFilePath']=psfpQ+'temp/'
         fpQ=globals()['RunFilePath']
-    RunNumStr=str(RunNuQ).zfill(3)
+    RunNumStr=str(RunNuQ).zfill(4)#changed to 4, just in case! 20210810
     RunName='run'+str(RunNumStr)+'_'# ##add 'test' at beginning for test
     #fpQ='/reg/neh/operator/mecopr/experiments/optical_beam/ns_laser/pp/spare/'
     #fpQ='/reg/neh/operator/mecopr/experiments/mecx37917/lecroy/'
@@ -3378,6 +3252,7 @@ def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
             print('File path '+fpQ[-7]+' does not exist! Trying to create it...')
             try:
                 os.makedirs(fpQ[-7]);print('Folder created successfully!');
+                os.chmod(fpQ[-7],stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO);
             except:
                 print('Failed to create '+fpQ[-7]+'!')
     
@@ -3385,6 +3260,7 @@ def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
             print('File path '+fpQ+' does not exist! Trying to create it...')
             try:
                 os.makedirs(fpQ);print('Folder created successfully!');
+                os.chmod(fpQ,stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO);
             except:
                 print('Failed to create '+fpQ+'!')
     
@@ -3408,7 +3284,11 @@ def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
         weich1in1wCD=np.array(weich1in1w(2,SLA));
         time.sleep(.15); LAClose(SLA); time.sleep(.15);
     except:
-        LAClose(SLA);
+        try:
+            LAClose(SLA);
+        except:
+            pass
+        weichYFE00=np.zeros(5002);weich1in1wCD=np.zeros(5002);
         print('Error! SLA')
 
     try:
@@ -3417,7 +3297,11 @@ def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
         weich2in1wGH=np.array(weich2in1w(3,SLB)); weich2in1wIJ=np.array(weich2in1w(4,SLB));
         time.sleep(.15); LBClose(SLB); time.sleep(.15);
     except:
-        LBClose(SLB);
+        try:
+            LBClose(SLB);
+        except:
+            pass
+        weich2in1wAB=np.zeros(5002); weich2in1wEF=np.zeros(5002);weich2in1wGH=np.zeros(5002); weich2in1wIJ=np.zeros(5002);
         print('Error! SLB')
 
     #SL2=L2Open(); time.sleep(.15);
@@ -3431,7 +3315,10 @@ def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
         weich2in2wGH=np.array(weich2in2w(3,SL2)); weich2in2wIJ=np.array(weich2in2w(4,SL2));
         time.sleep(.15); L2Close(SL2); time.sleep(.15);
     except:
-        L2Close(SL2);
+        try:
+            L2Close(SL2);
+        except:
+            pass
         print('Error! SL2')
 
     total_print=''
@@ -3532,14 +3419,14 @@ def psacqx(save_flag=True, RunNumQQ=900):#was psacqx_noLecroyA()
     s42in2wtoday.append([weich2in2wAB,weich2in2wEF,weich2in2wGH,weich2in2wIJ])
     stoday.append(WeightedSum)
 
-    pickle.dump(wtoday,open(str(psfpQ+'w'+str(DateStr)+'.p'),'wb'));
+    pickledump2(wtoday,str(psfpQ+'w'+str(DateStr)+'.p'));
 
     #pickle.dump(htoday,open(str(psfpQ+'h'+str(DateStr)+'.p'),'wb'));
-    pickle.dump(ytoday,open(str(psfpQ+'y'+str(DateStr)+'.p'),'wb'));
-    pickle.dump(s1in1wtoday,open(str(psfpQ+'s1in1w'+str(DateStr)+'.p'),'wb'));
-    pickle.dump(s42in1wtoday,open(str(psfpQ+'s42in1w'+str(DateStr)+'.p'),'wb'));
-    pickle.dump(s42in2wtoday,open(str(psfpQ+'s42in2w'+str(DateStr)+'.p'),'wb'));
-    pickle.dump(stoday,open(str(psfpQ+'s'+str(DateStr)+'.p'),'wb'));
+    pickledump2(ytoday,str(psfpQ+'y'+str(DateStr)+'.p'));
+    pickledump2(s1in1wtoday,str(psfpQ+'s1in1w'+str(DateStr)+'.p'));
+    pickledump2(s42in1wtoday,str(psfpQ+'s42in1w'+str(DateStr)+'.p'));
+    pickledump2(s42in2wtoday,str(psfpQ+'s42in2w'+str(DateStr)+'.p'));
+    pickledump2(stoday,str(psfpQ+'s'+str(DateStr)+'.p'));
 
     if save_flag:
         mecel = elog.ELog({'experiment':ExpName},user='mecopr',pw=pickle.load(open(psfilepath()+'elogauth.p','rb'))) 
@@ -3568,21 +3455,12 @@ def psefc(JreqQ=0,AQQ=0.0):
     pshostcheck()
     psheaders();
     mapnow=LMap()
-    ##CHANGE THE PARAMETERS BELOW FOR THE PULSE YOU WANT
-    #####Psns= [3,4.25]#20.5 #   duration in ns/segment 
-    #####DesRat=12.0#6.0,8.0,12.0
-    #####SSs= [[.98*100/DesRat,100/DesRat],[98,100]] ##   edge heights
+
     psfpQ=psfilepath()
     Psns=pickle.load(open(psfpQ+'Psns.p','rb'))
     SSs=pickle.load(open(psfpQ+'SSs.p','rb'))
     Jscale=1
-    #if len(SSs)>3:
-        #Jscale=1.025#1.01
-    #else:
-        #Jscale=1.00
-    #if np.sum(Psns)<8:
-        #BumpQ=2.5
-        #Jscale=1.025
+
     if int(JreqQ) < 5:
         Jreq=np.sum(PulseEnergies)*Jscale #65
     else:
@@ -3687,8 +3565,8 @@ def psloadwvfm(RecipeStrQ,WvGoal10HzHint=False):
     except:
         print('Recipe file '+psfilepath()+'recipes/load'+RecipeStrQ+'.p\' not found.')
         return
-    pickle.dump(Psns,open(psfilepath()+'Psns.p','wb'))
-    pickle.dump(SSs,open(psfilepath()+'SSs.p','wb'))
+    pickledump2(Psns,psfilepath()+'Psns.p')
+    pickledump2(SSs,psfilepath()+'SSs.p')
     YFEset(2,YFE02mmCurr);time.sleep(.15);
     YFEset(6,YFE06mmCurr);time.sleep(.15);
     YFEset(10,YFE10mmCurr);time.sleep(.15);
@@ -3756,10 +3634,10 @@ def pssavewvfm(PsnsQ=0,SSsQ=0,YFEgetQ=0,TargetwlistDateQ='curr',TargetwindexQ=0,
         except:
             oldfilefound=False
             dummyQ[-1]='**replaced on '+DateString()+'** '+dummyQ[-1]
-            pickle.dump(dummyQ,open(psfilepath()+'recipes/load'+RecipeStrQ+'_'+str(iiQ).zfill(2)+'.p','wb'))
+            pickledump2(dummyQ,psfilepath()+'recipes/load'+RecipeStrQ+'_'+str(iiQ).zfill(2)+'.p')
             print('Saved old recipe as '+psfilepath()+'recipes/load'+RecipeStrQ+'_'+str(iiQ).zfill(2)+'.p')
     try:
-        pickle.dump([PsnsQ,SSsQ,YFE02mmCurrQ,YFE06mmCurrQ,YFE10mmCurrQ,NewWvfmQ,WvGoal10HzQ],open(psfilepath()+'recipes/load'+RecipeStrQ+'.p','wb'))
+        pickledump2([PsnsQ,SSsQ,YFE02mmCurrQ,YFE06mmCurrQ,YFE10mmCurrQ,NewWvfmQ,WvGoal10HzQ],psfilepath()+'recipes/load'+RecipeStrQ+'.p')
         print('Saved new recipe as '+psfilepath()+'recipes/load'+RecipeStrQ+'.p')
     except:
         print('Failed to save new recipe.')
@@ -3818,7 +3696,7 @@ def psviewwvfm(RecipeStrQ='none',TargetwlistDateQ='curr',TargetwindexQ=0,WvGoal1
 
 def psrefrwvfm(RecipeStrQ,numStepsQ=50,stepSizeQ=0.25,displayPlotQ=False):
     pshostcheck()
-    pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
+    pvMBCpower=EpicsSignal('MEC:64B:PWR:2:Outlet:8:SetControlAction')#WAS 'MEC:S60:PWR:01:Outlet:7:SetControlAction'#read AND write:1=ON,2=OFF
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
     pvMBCsetpt=EpicsSignal('MEC:LPL:MBC:01:AutoCalibration.VAL',write_pv='MEC:LPL:MBC:01:AutoCalibration') #QUAD=0,MIN=1,MAX=2
     pvMBCbias=EpicsSignal('MEC:LPL:MBC:01:BiasValue_RBV',write_pv='MEC:LPL:MBC:01:BiasValue')
@@ -3847,8 +3725,9 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=50,stepSizeQ=0.25,displayPlotQ=False):
         print('No wave extracted: '+WvGoal10Hz)
         return
     #close the shutters
-    print('Closing all shutters...')
-    toggle_TTL_shutter('closeall',display=False)#close all the shutters
+    print('NOT closing the shutters... hope you\'re protecting your sample!')
+    #print('Closing all shutters...')
+    #toggle_TTL_shutter('closeall',display=False)#close all the shutters
     time.sleep(4)
     try:#used to make sure shutters re-open even in case of error or KeyboardInterrupt
         #check if laser is on
@@ -3896,8 +3775,8 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=50,stepSizeQ=0.25,displayPlotQ=False):
         pvslicerEC.put(182);time.sleep(0.5);
         pvslicerenable.put(1)
         #re-open shutters
-        print('Opening all shutters...')
-        toggle_TTL_shutter('openall',display=False);#open all the shutters
+        #print('Opening all shutters...')
+        #toggle_TTL_shutter('openall',display=False);#open all the shutters
         resetMBC();
         YFEsetall(True,displayQ=False);
     except:#used to make sure shutters re-open even in case of error or KeyboardInterrupt
@@ -3906,16 +3785,20 @@ def psrefrwvfm(RecipeStrQ,numStepsQ=50,stepSizeQ=0.25,displayPlotQ=False):
         pvslicerEC.put(182);time.sleep(0.5);
         pvslicerenable.put(1)
         #re-open shutters
-        print('Opening all shutters...')
-        toggle_TTL_shutter('openall',display=False);#open all the shutters
+        #print('Opening all shutters...')
+        #toggle_TTL_shutter('openall',display=False);#open all the shutters
         resetMBC();
         YFEsetall(True,displayQ=False);
         
-
+def psrecipes():
+    allrec=glob.glob(psfilepath()+'recipes/*.p');
+    oldrec=glob.glob(psfilepath()+'recipes/*_*.p')
+    currec=[ext[60:-2] for ext in allrec if ext not in oldrec];currec.sort();
+    return currec
 
 def pspreshot():
     pshostcheck()
-    pvMBCpower=EpicsSignal('MEC:S60:PWR:01:Outlet:7:SetControlAction')#read AND write:1=ON,2=OFF
+    pvMBCpower=EpicsSignal('MEC:64B:PWR:2:Outlet:8:SetControlAction')#WAS 'MEC:S60:PWR:01:Outlet:7:SetControlAction'#read AND write:1=ON,2=OFF
     pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
     pvMBCsetpt=EpicsSignal('MEC:LPL:MBC:01:AutoCalibration.VAL',write_pv='MEC:LPL:MBC:01:AutoCalibration') #QUAD=0,MIN=1,MAX=2
     pvMBCbias=EpicsSignal('MEC:LPL:MBC:01:BiasValue_RBV',write_pv='MEC:LPL:MBC:01:BiasValue')
@@ -3994,8 +3877,8 @@ def pspreshot():
     if len(not_charging)>0:
         print('** WARNING: The following heads are enabled but NOT charging: '+not_charging) 
 
-    toggle_TTL_shutter('open'+yes_enabled+'wwxx',display=False);time.sleep(1);#make sure all shutters are open...
-    toggle_TTL_shutter('close'+not_enabled,display=False)#close shutters that aren't enabled
+    #toggle_TTL_shutter('open'+yes_enabled+'wwxx',display=False);time.sleep(1);#make sure all shutters are open...
+    #toggle_TTL_shutter('close'+not_enabled,display=False)#close shutters that aren't enabled
     return prechk
     #waveform pre-check? verify shutters are open?
 
@@ -4007,10 +3890,11 @@ def pspostshot(save_flag_q=True):
     pshostcheck()
     psacqx(save_flag=save_flag_q)#took out _noLecroyA
     #psefc();
-    toggle_TTL_shutter('openall',display=False);#make sure all shutters are open again...
+    #toggle_TTL_shutter('openall',display=False);#make sure all shutters are open again...
     print('Resetting bias tracking...')
     resetMBC();
     YFEsetall(True);
+    E_synth_refresh();
 
 
 def save_scope_to_eLog(chan_to_eLog=2):
@@ -4024,12 +3908,14 @@ def save_scope_to_eLog(chan_to_eLog=2):
         print('File path '+fpQ[-13]+' does not exist! Trying to create it...')
         try:
             os.makedirs(fpQ[-13]);print('Folder created successfully!');
+            os.chmod(fpQ[-13],stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO);
         except:
             print('Failed to create '+fpQ[-13]+'!')
     if not os.path.exists(fpQ):
         print('File path '+fpQ+' does not exist! Trying to create it...')
         try:
             os.makedirs(fpQ);print('Folder created successfully!');
+            os.chmod(fpQ,stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO);
         except:
             print('Failed to create '+fpQ+'!')
     try:
@@ -4071,7 +3957,7 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
     else:
         print('(YFE current seems OK...)')
     if MBCmodecheck() != 0:
-        print('(Warning! The MBC doesn\'t appear to be in AUTO mode!')
+        print('(Warning! The MBC doesn\'t appear to be in AUTO mode!)')
     else:
         print('(MBC mode seems OK...)')
     print('Are you sure you are ready to proceed? [enter y/n]',end='',flush=True)
@@ -4102,6 +3988,21 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
     toggle_TTL_shutter('closeall',display=False);#close all the shutters
     time.sleep(4)
     pvslicerEC.put(43);pvslicerenable.put(1);#enable these...
+    try:
+        SLA=LAOpen();time.sleep(.15);
+        tempchk1=rch(1,SLA);time.sleep(.15);tempchk2=rch(1,SLA);
+        if np.sum(np.abs(tempchk1-tempchk2))<1e-6:
+            print('Warning: scope trace doesn\'t appear to be updating, please check scope! Abort? [enter y/n]')
+            checkprompt=input();
+            if checkprompt.lower() != 'y':
+                print('Try again later then!');
+                return
+            else:
+                print('OK, I hope you know what you\'re doing!')
+    except:
+        print('Scope error, check scope status! Aborting...')
+        LAClose(SLA);time.sleep(.15);
+        return
     startposlist=[SHGrbv.get() for SHGrbv in SHGpvlist];
     newposlist=startposlist[:]
     alphEFGH=0.5;
@@ -4163,41 +4064,141 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
     pvslicerenable.put(0);#disable PC before re-opening shutters
     datestamp=int(datetime.now().strftime('%Y%m%d%H%M%S'))
     SHGlog=pickle.load(open(psfilepath()+'SHG_opt_log.p','rb'))
-    for ii in range(4):
-        SHGlog[ii].append([datestamp,newposlist[ii]])
-    pickle.dump(SHGlog,open(psfilepath()+'SHG_opt_log.p','wb'))
+    SHGlog.append([datestamp,[newposlist[ii] for ii in range(4)]])
+    pickledump2(SHGlog,psfilepath()+'SHG_opt_log.p')
     toggle_TTL_shutter('openall',display=False);#open all the shutters
     resetMBC();YFEsetall(True);#reset bias...
 
-
+def HWP_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start in the open state... 
+    print('Running this routine requires ALL TTL shutters to begin in the open state! The YFE must be on with the bias dither initially enabled!')
+    if np.sum(TTL_shutter_status(display=False)[-1]) > 0:
+        print('Warning! The shutters don\'t all appear to be open! ',end='',flush=True);TTL_shutter_status(display=True);
+    else:
+        print('(Shutters seem OK...)')
+    if not YFEoncheck(display=False):
+        print('Warning! The YFE doesn\'t appear to be on! ',end='',flush=True);YFEoncheck(display=True);
+    else:
+        print('(YFE emission seems OK...)')
+    if np.sum(YFEget(display=False)) < 550:
+        print('Warning! The YFE doesn\'t appear to be turned up! ');YFEget(display=True);
+    else:
+        print('(YFE current seems OK...)')
+    if MBCmodecheck() != 0:
+        print('(Warning! The MBC doesn\'t appear to be in AUTO mode!')
+    else:
+        print('(MBC mode seems OK...)')
+    print('Are you sure you are ready to proceed? [enter y/n]',end='',flush=True)
+    checkprompt=input();
+    if checkprompt.lower() != 'y':
+        print('Try again later then!');
+        return
+    else:
+        print('OK, I hope you know what you\'re doing!')
+    HWPon('all',set_T=1)
+    pvslicerEC=EpicsSignal('EVR:MEC:USR01:TRIG7:EC_RBV',write_pv='EVR:MEC:USR01:TRIG7:TEC')#slicer event code; needs 43
+    pvslicerenable=EpicsSignal('EVR:MEC:USR01:TRIG7:TCTL') #slicer enable; 0=off,1=on
+    pvMBCmode=EpicsSignal('MEC:LPL:MBC:01:RunningMode_RBV',write_pv='MEC:LPL:MBC:01:RunningMode')#AUTO=0,MAN=1
+    armlist=['AB','EF','GH','IJ']
+    #YFEoff();YFEon();
+    pvMBCmode.put(1)#set MAN mode on MBC
+    if np.sum(YFEget(display=False)) < 100:
+        print('Check YFE before optimizing!')
+    optwvfm=pickle.load(open(psfilepath()+'opttrace.p','rb'));
+    try:
+        S=HOpen();time.sleep(.15);oldwvfm=ReadPulseHeights(S,0);time.sleep(.15);
+        WritePulseHeights(S,0,optwvfm);time.sleep(.15);HClose(S);time.sleep(.15);
+    except:
+        HClose(S);
+    motnamelist=['MEC:NS1:MMS:02','MEC:NS1:MMS:01','MEC:LAS:MMN:30','MEC:LAS:MMN:29'];#VAL/RBV
+    HWPpvlist=[EpicsSignal(motname+'.RBV',write_pv=motname+'.VAL') for motname in motnamelist];
+    print('Closing all shutters...')
+    toggle_TTL_shutter('closeall',display=False);#close all the shutters
+    time.sleep(4)
+    pvslicerEC.put(43);pvslicerenable.put(1);#enable these...
+    startposlist=[HWPrbv.get() for HWPrbv in HWPpvlist];
+    newposlist=startposlist[:]
+    for ii in range(4):
+        if armlist[ii] in armsQ:#only prep the stage if it's going to be used
+            HWPpvlist[ii].put(startposlist[ii]+(-20.0+4.0*0))
+    currentshutter=0;#trying to re-open a shutter in case of failure...
+    stepQ=1.0;rangeQ=20.0;
+    try:
+        SLA=LAOpen();time.sleep(.15);#changed to LecroyA since repair
+        for ii in range(4):
+            if armlist[ii] in armsQ:
+                print('Begin optimizing '+armlist[ii]+'... ',end='',flush=True);
+                hwparmdatax,hwparmdatay=[],[]
+                toggle_TTL_shutter('open'+armlist[ii],display=False);currentshutter=ii;time.sleep(4);print('Shutter opened!');#open one shutter
+                for jj in range(int(1+(2*rangeQ/stepQ))):
+                    print('.',end='',flush=True)
+                    HWPpvlist[ii].put(startposlist[ii]+(-rangeQ+stepQ*(jj)));time.sleep(4);#step to new position#was 2.5
+                    curr_x=HWPpvlist[ii].get();curr_y=np.max(rch(3,SLA));time.sleep(.15);#in testing, max is more stable than sum
+                    if curr_y > 0.005:#threshold so don't skew fit with noise; max is ~~10x this
+                        hwparmdatax.append(curr_x);hwparmdatay.append(curr_y);#save x and y
+                    print('.',end='',flush=True)
+                print('*')
+                qfit=np.polyfit(hwparmdatax,hwparmdatay,2);newpos=qfit[1]/(-2*qfit[0]);#find fit and new max
+                if np.abs(startposlist[ii]-newpos)<0.85*rangeQ:
+                    HWPpvlist[ii].put(newpos);newposlist[ii]=newpos;
+                    print('HWP position on arm '+armlist[ii]+' changed from '+str(round(startposlist[ii],4))+' to '+str(round(newpos,4)))
+                else:
+                    print('Failed! New HWP position on arm '+armlist[ii]+' seems too far off... '+str(round(newpos,4))+' from '+str(round(startposlist[ii],4))+'... Restoring...')
+                    HWPpvlist[ii].put(startposlist[ii])
+                toggle_TTL_shutter('close'+armlist[ii],display=False);currentshutter=0;#close that shutter;
+                xpq=np.arange(startposlist[ii]+(-rangeQ+stepQ*(-1)),startposlist[ii]+(-rangeQ+stepQ*int(1+(2*rangeQ/stepQ))),.1);
+                qfitp=np.poly1d(qfit);
+                epllxy([[hwparmdatax,hwparmdatay],[xpq,qfitp(xpq)]],xlb=armlist[ii])
+            else:
+                print('Skipping '+armlist[ii]+'...')
+                pass
+        LAClose(SLA);time.sleep(.15);#changed to LeCroyA
+    except:
+        print('Failed! Restoring original values and attempting to re-open most-recent shutter... you should verify!')
+        LAClose(SLA);time.sleep(.15);#changed to LeCroyA
+        if currentshutter > 0:
+            toggle_TTL_shutter('open'+armlist[currentshutter],display=False);
+        for ii in range(4):
+            HWPpvlist[ii].put(startposlist[ii]);newposlist[ii]=startposlist[ii];
+    time.sleep(2);#need time so that last shutter trigger ends before trying to open IJ
+    try:
+        S=HOpen();time.sleep(.15);WritePulseHeights(S,0,oldwvfm);time.sleep(.15);HClose(S);time.sleep(.15);
+    except:
+        HClose(S);
+        print('Error! Check waveform!')
+    pvslicerenable.put(0);#disable PC before re-opening shutters
+    datestamp=int(datetime.now().strftime('%Y%m%d%H%M%S'))
+    HWPlog=pickle.load(open(psfilepath()+'HWP_opt_log.p','rb'))
+    HWPlog.append([datestamp,[newposlist[ii] for ii in range(4)]])
+    pickledump2(HWPlog,psfilepath()+'HWP_opt_log.p')
+    toggle_TTL_shutter('openall',display=False);#open all the shutters
+    resetMBC();YFEsetall(True);#reset bias...
+    motnamelist=['MEC:NS1:MMS:02','MEC:NS1:MMS:01','MEC:LAS:MMN:30','MEC:LAS:MMN:29']#.OFF
+    #add adjustment to offset automatically....
+    for ii in range(4):
+        temppv=EpicsSignal(motnamelist[ii]+'.OFF');tempval=temppv.get();
+        temppv.put(tempval-newposlist[ii]);
 
 def gentec_refresh():
-    pvabir=['MEC:LAS:GENTEC:02:CH1:DESCRIPTION','MEC:LAS:GENTEC:02:CH1:SET_WAVLEN','MEC:LAS:GENTEC:02:CH1:SCALE','MEC:LAS:GENTEC:02:CH1:SET_TRIGMODE','MEC:LAS:GENTEC:02:CH1:SET_TRIGLVL','MEC:LAS:GENTEC:02:CH1:SET_ATTENUATOR']
-    abirvals=['AB IRsamp',1053,'1',1,2,0]
-    pvefir=['MEC:LAS:GENTEC:02:CH2:DESCRIPTION','MEC:LAS:GENTEC:02:CH2:SET_WAVLEN','MEC:LAS:GENTEC:02:CH2:SCALE','MEC:LAS:GENTEC:02:CH2:SET_TRIGMODE','MEC:LAS:GENTEC:02:CH2:SET_TRIGLVL','MEC:LAS:GENTEC:02:CH2:SET_ATTENUATOR']
-    efirvals=['EF IRsamp',1053,'1',1,2,0]
-    pvghir=['MEC:LAS:GENTEC:01:CH1:DESCRIPTION','MEC:LAS:GENTEC:01:CH1:SET_WAVLEN','MEC:LAS:GENTEC:01:CH1:SCALE','MEC:LAS:GENTEC:01:CH1:SET_TRIGMODE','MEC:LAS:GENTEC:01:CH1:SET_TRIGLVL','MEC:LAS:GENTEC:01:CH1:SET_ATTENUATOR']
-    ghirvals=['GH IRsamp',1053,'1',1,2,0]
-    pvijir=['MEC:LAS:GENTEC:01:CH2:DESCRIPTION','MEC:LAS:GENTEC:01:CH2:SET_WAVLEN','MEC:LAS:GENTEC:01:CH2:SCALE','MEC:LAS:GENTEC:01:CH2:SET_TRIGMODE','MEC:LAS:GENTEC:01:CH2:SET_TRIGLVL','MEC:LAS:GENTEC:01:CH2:SET_ATTENUATOR']
-    ijirvals=['IJ IRsamp',1053,'1',1,2,0]
+    pvhead='MEC:LAS:GENTEC:';pvtails=['DESCRIPTION','SET_WAVLEN','SET_SCALE','SET_TRIGMODE','SET_TRIGLVL','SET_ATTENUATOR'];#'SET_SCALE' was 'SCALE'
+    pvids=['02:CH1:','02:CH2:','01:CH1:','01:CH2:','03:CH1:','03:CH2:','04:CH1:','04:CH2:'];
+    abirvals=['AB IRsamp',1053,24,1,2,0]#24 was '1' with 'SCALE'
+    efirvals=['EF IRsamp',1053,24,1,2,0]
+    ghirvals=['GH IRsamp',1053,24,1,2,0]
+    ijirvals=['IJ IRsamp',1053,24,1,2,0]
 
-    pvab2w=['MEC:LAS:GENTEC:03:CH1:DESCRIPTION','MEC:LAS:GENTEC:03:CH1:SET_WAVLEN','MEC:LAS:GENTEC:03:CH1:SCALE','MEC:LAS:GENTEC:03:CH1:SET_TRIGMODE','MEC:LAS:GENTEC:03:CH1:SET_TRIGLVL','MEC:LAS:GENTEC:03:CH1:SET_ATTENUATOR']
-    ab2wvals=['AB 2wsamp',527,'300m',1,2,0]
-    pvef2w=['MEC:LAS:GENTEC:03:CH2:DESCRIPTION','MEC:LAS:GENTEC:03:CH2:SET_WAVLEN','MEC:LAS:GENTEC:03:CH2:SCALE','MEC:LAS:GENTEC:03:CH2:SET_TRIGMODE','MEC:LAS:GENTEC:03:CH2:SET_TRIGLVL','MEC:LAS:GENTEC:03:CH2:SET_ATTENUATOR']
-    ef2wvals=['EF 2wsamp',527,'300m',1,2,0]
-    pvgh2w=['MEC:LAS:GENTEC:04:CH1:DESCRIPTION','MEC:LAS:GENTEC:04:CH1:SET_WAVLEN','MEC:LAS:GENTEC:04:CH1:SCALE','MEC:LAS:GENTEC:04:CH1:SET_TRIGMODE','MEC:LAS:GENTEC:04:CH1:SET_TRIGLVL','MEC:LAS:GENTEC:04:CH1:SET_ATTENUATOR']
-    gh2wvals=['GH 2wsamp',527,'300m',1,2,0]
-    pvij2w=['MEC:LAS:GENTEC:04:CH2:DESCRIPTION','MEC:LAS:GENTEC:04:CH2:SET_WAVLEN','MEC:LAS:GENTEC:04:CH2:SCALE','MEC:LAS:GENTEC:04:CH2:SET_TRIGMODE','MEC:LAS:GENTEC:04:CH2:SET_TRIGLVL','MEC:LAS:GENTEC:04:CH2:SET_ATTENUATOR']
-    ij2wvals=['IJ 2wsamp',527,'300m',1,2,0]
+    ab2wvals=['AB 2wsamp',527,23,1,2,0]#23 was '300m' with 'SCALE'
+    ef2wvals=['EF 2wsamp',527,23,1,2,0]
+    gh2wvals=['GH 2wsamp',527,23,1,2,0]
+    ij2wvals=['IJ 2wsamp',527,23,1,2,0]
 
-    pveast=['MEC:GENTEC:01:CH1:DESCRIPTION','MEC:GENTEC:01:CH1:SET_WAVLEN','MEC:GENTEC:01:CH1:SCALE','MEC:GENTEC:01:CH1:SET_TRIGMODE','MEC:GENTEC:01:CH1:SET_TRIGLVL','MEC:GENTEC:01:CH1:SET_ATTENUATOR']
-    eastvals=['East GHIJ, short pulse',527,'100',1,2,1]
+    pvwest=['MEC:GENTEC:01:CH2:DESCRIPTION','MEC:GENTEC:01:CH2:SET_WAVLEN','MEC:GENTEC:01:CH2:SET_SCALE','MEC:GENTEC:01:CH2:SET_TRIGMODE','MEC:GENTEC:01:CH2:SET_TRIGLVL','MEC:GENTEC:01:CH2:SET_ATTENUATOR']
+    westvals=['West ABEF',527,28,1,2,1]#28 was '100' with 'SCALE'
 
-    pvwest=['MEC:GENTEC:01:CH2:DESCRIPTION','MEC:GENTEC:01:CH2:SET_WAVLEN','MEC:GENTEC:01:CH2:SCALE','MEC:GENTEC:01:CH2:SET_TRIGMODE','MEC:GENTEC:01:CH2:SET_TRIGLVL','MEC:GENTEC:01:CH2:SET_ATTENUATOR']
-    westvals=['West ABEF',527,'100',1,2,1]
+    pveast=['MEC:GENTEC:01:CH1:DESCRIPTION','MEC:GENTEC:01:CH1:SET_WAVLEN','MEC:GENTEC:01:CH1:SET_SCALE','MEC:GENTEC:01:CH1:SET_TRIGMODE','MEC:GENTEC:01:CH1:SET_TRIGLVL','MEC:GENTEC:01:CH1:SET_ATTENUATOR']
+    eastvals=['East GHIJ, short pulse',527,28,1,2,1]#28 was '100' with 'SCALE'
 
-    pvgroups = [pvabir,pvefir,pvghir,pvijir,pvab2w,pvef2w,pvgh2w,pvij2w,pveast,pvwest]
-    valgroups = [abirvals,efirvals,ghirvals,ijirvals,ab2wvals,ef2wvals,gh2wvals,ij2wvals,eastvals,westvals]
+    pvgroups = [[pvhead+pvid+pvtail for pvtail in pvtails] for pvid in pvids];pvgroups.append(pvwest);pvgroups.append(pveast);
+    valgroups = [abirvals,efirvals,ghirvals,ijirvals,ab2wvals,ef2wvals,gh2wvals,ij2wvals,westvals,eastvals]
     for pvgroup,valgroup in zip(pvgroups,valgroups):
         for pvx,valx in zip(pvgroup,valgroup):
             temppv=EpicsSignal(pvx)
@@ -4213,7 +4214,7 @@ def E_coeff_refresh():
     pvlist=['MEC:LAS:FLOAT:'+str(ii) for ii in range(31,41)];
     inddesclist=['YFE','CD1w','AB1w','EF1w','GH1w','IJ1w','AB2w','EF2w','GH2w','IJ2w']
     desclist=['E_coeff_'+inddesc for inddesc in inddesclist]
-    valulist=[.3578,0.5971,224.0,177.5,307.4*0.849,113.2,111.0,187.9,182.1,123.5]
+    valulist=[.3578,0.5971,224.0,177.5,307.4*0.849,113.2,111.0*1.17,187.9*0.860,182.1*0.897,123.5*1.25]
     for jj in range(len(pvlist)):
         temppv1=EpicsSignal(str(pvlist[jj]+'.DESC'));temppv2=EpicsSignal(pvlist[jj]);
         temppv1.put(desclist[jj]);temppv2.put(valulist[jj]);
@@ -4262,5 +4263,52 @@ def TTL_shutter_refresh():
         temppv1=EpicsSignal(str(pvlist[jj]+'.DESC'));temppv2=EpicsSignal(pvlist[jj]);
         temppv1.put(desclist[jj]);temppv2.put(valulist[jj]);
 
+def DG_refresh():
+    pvlist=[['MEC:LAS:DDG:0'+str(numii)+':'+chii+'DelaySI.DESC' for chii in ['a','c','e','g']] for numii in [1,2,6,8]];
+    desclist=[['A:PS LATE','C:INH PS EARLY','E:unused','G: unused'],['A:PS EARLY','C:unused','E:EvoHE1','G:EvoHE2'],['A:GaiaQSW','C:GaiaLamp','E:INH UNI','G:GigE TRIG IN'],['A:BIG UNI','C:small UNI','E:INH GigE','G:unused']]
+    for eachboxii in range(len(pvlist)):
+        for eachentryii in range(len(eachboxii)):
+            temppv=EpicsSignal(pvlist[eachboxii][eachentryii])
+            temppv.put(desclist[eachboxii][eachentryii])
+
+def SPLEG():
+    reen=EpicsSignal('MEC:LAS:GENTEC:07:CH1:MEAS').get() 
+    toen=EpicsSignal('MEC:LAS:GENTEC:07:CH2:MEAS').get() 
+    m1en=EpicsSignal('MEC:LAS:GENTEC:06:CH1:MEAS').get() 
+    m2en=EpicsSignal('MEC:LAS:GENTEC:06:CH2:MEAS').get() 
+    regenen=1.64e5*reen + 1.03156061e-01 
+    topasen=3.48e7*toen - 1.63e1 
+    mpa1en=1.81e5*m1en - 0.301 #1.76e5, -2.22e0
+    mpa2en=1.05e5*m2en - 1.39e-1 
+    return np.round([regenen,topasen,mpa1en,mpa2en],2)
+
+def vinko_temp():
+    dat = np.array(np.genfromtxt('/cds/home/e/efcunn/Documents/lw36_vinko.txt'))
+    segs2=np.append((dat.T[1][1:]/0.178383/.01)[0::10],100);
+    segs3=np.array([0.1,4,8,12,18.1,25,40,65,78,87,100]);
+    rPsns=9*[1.75]+[1.75]
+    rSSs=[[segs2[ii],segs2[ii+1]] for ii in range(len(segs2)-1)]
+    rSSs3=[[segs3[ii],segs3[ii+1]] for ii in range(len(segs3)-1)]
+    plt.plot(0.178383*PulseGoal(9*[1.75]+[1.75],[[segs2[ii],segs2[ii+1]] for ii in range(len(segs2)-1)]))
+    pwtin=0*ExponentialWave2(500,.03,1000,.03,0,5002)
+    r10SSs=[[.08*(((ii+1)/11.0)**1.5)*rSSs3[ii][0]/100,.08*(((ii+2)/11.0)**1.5)*rSSs3[ii][1]/100] for ii in range(len(rSSs3))]
+    r10Psns=[[500+(100*1.5*ii),500+(100*1.5*(ii+1))] for ii in range(len(rPsns))]
+    pwtinstr=''
+    for ii in range(len(r10Psns)):
+        pwtin+=ExponentialWave2(r10Psns[ii][0],r10SSs[ii][0],r10Psns[ii][1],r10SSs[ii][1],0,5002)
+        pwtinstr+='ExponentialWave2('+str(int(r10Psns[ii][0]))+','+str(np.round(r10SSs[ii][0],5))+','+str(int(r10Psns[ii][1]))+','+str(np.round(r10SSs[ii][1],5))+',0,5002)'
+        if ii < len(r10Psns)-1:
+            pwtinstr+='+'
+    pickledump2(rPsns,'Psns.p','wb')
+    pickledump2(rSSs,'SSs.p','wb')
+
+def pickledump2(objQ,fullFileNameQ):
+    pickle.dump(objQ,open(fullFileNameQ,'wb'));
+    os.chmod(fullFileNameQ,stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IWGRP|stat.S_IROTH|stat.S_IWOTH);#
+    #os.chmod(fullFileNameQ,stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO);#
+    return
+
 def reloadchk():
-    print('Reload check: 20210312')
+    print('Reload check: 20210810')
+
+
