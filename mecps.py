@@ -44,6 +44,9 @@ import glob
 import pandas as pd
 import stat
 import getpass
+import multiprocessing
+import termios, tty
+
 
 def Hex1Byte(num):
     return '{0:02x}'.format(int(num)%(0xff+1))
@@ -818,76 +821,31 @@ def HClose(SocketName):
     #print('HIGHLAND DISCONNECTED')
     return
 
-def LOpen():
+def LXOpen(LStrQ):
+    if   str(LStrQ).lower() == 'a':
+        host = '172.21.46.100'
+    elif str(LStrQ).lower() == 'b':
+        host = '172.21.46.120'
+    elif str(LStrQ).lower() == '1':
+        host = '172.21.46.60'
+    elif str(LStrQ).lower() == '2':
+        host = '172.21.46.128'
+    else:
+        print('Invalid scope name! Choose 1, 2, A, or B!!')
+        return False
+    port = 1861
     try:
-        host = '172.21.46.60'#172.21.46.60 for the 13GHz
-        port = 1861
-        LSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        LSock.settimeout(1.0)
-        LSock.connect((host, port))
-        #print('LECROY CONNECTED')
+        LSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM); LSock.settimeout(1.0);LSock.connect((host, port));
     except:
-        print('LECROY NOT CONNECTED')
+        print('LECROY '+str(LStrQ)+' NOT CONNECTED!')
         return False
     return LSock
 
-def LClose(SocketName):
-    SocketName.close()
-    #print('LECROY DISCONNECTED')
-    return
-
-def L2Open():
+def LXClose(SocketName):
     try:
-        host = '172.21.46.128'#172.21.46.128 for the 4GHz; 172.21.46.107 for the loaner
-        port = 1861
-        LSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        LSock.settimeout(1.0)
-        LSock.connect((host, port))
-        #print('LECROY2 CONNECTED')
+        SocketName.close()
     except:
-        print('LECROY2 NOT CONNECTED')
-        return False
-    return LSock
-
-def L2Close(SocketName):
-    SocketName.close()
-    #print('LECROY2 DISCONNECTED')
-    return
-
-def LAOpen():
-    try:
-        host = '172.21.46.100'#172.21.46.60 for the 13GHz
-        port = 1861
-        LSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        LSock.settimeout(1.0)
-        LSock.connect((host, port))
-        #print('LECROY CONNECTED')
-    except:
-        print('LECROYA NOT CONNECTED')
-        return False
-    return LSock
-
-def LAClose(SocketName):
-    SocketName.close()
-    #print('LECROY DISCONNECTED')
-    return
-
-def LBOpen():
-    try:
-        host = '172.21.46.120'#172.21.46.128 for the 4GHz; 172.21.46.107 for the loaner
-        port = 1861
-        LSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        LSock.settimeout(1.0)
-        LSock.connect((host, port))
-        #print('LECROY2 CONNECTED')
-    except:
-        print('LECROYB NOT CONNECTED')
-        return False
-    return LSock
-
-def LBClose(SocketName):
-    SocketName.close()
-    #print('LECROY2 DISCONNECTED')
+        print('LECROY SOCKET FAILED!')
     return
 
 def send_and_reply(msg,SocketName):
@@ -1641,11 +1599,11 @@ def pch(OChan,LSock):
     
 def YFEtrace():
     try:
-        SLA=LAOpen();time.sleep(0.15);
+        SLA=LXOpen('A');time.sleep(0.15);
         pch(1,SLA);time.sleep(0.15);
-        LAClose(SLA);time.sleep(0.15);
+        LXClose(SLA);time.sleep(0.15);
     except:
-        LAClose(SLA);
+        LXClose(SLA);
         print('Failed to display trace')
         return False
 
@@ -1775,21 +1733,42 @@ def sumch(chnoQ,sockQ):
 
 def weichYFE1w(chnoQ,sockQ):
     templistQ=rch(chnoQ,sockQ)
-    bkgrdQ=np.mean(templistQ[:380])
+    if np.abs(len(templistQ)-10000)<10:
+        bkgrdbuffer=380
+    elif np.abs(len(templistQ)-1000)<10:
+        bkgrdbuffer=38
+    else:
+        print('Warning: unanticipated pulse shape array length of '+str(len(templistQ))+', bkgrd subtraction may be off...')
+        bkgrdbuffer=1
+    bkgrdQ=np.mean(templistQ[:bkgrdbuffer])
     ensampQ=EG1wYFE1in()[0]
     weightQ=ensampQ/np.sum(np.array(templistQ)-bkgrdQ)
     return np.array(weightQ*(np.array(templistQ)-bkgrdQ))
     
 def weich1in1w(chnoQ,sockQ):
     templistQ=rch(chnoQ,sockQ)
-    bkgrdQ=np.mean(templistQ[:380])
+    if np.abs(len(templistQ)-10000)<10:
+        bkgrdbuffer=380
+    elif np.abs(len(templistQ)-1000)<10:
+        bkgrdbuffer=38
+    else:
+        print('Warning: unanticipated pulse shape array length of '+str(len(templistQ))+', bkgrd subtraction may be off...')
+        bkgrdbuffer=1
+    bkgrdQ=np.mean(templistQ[:bkgrdbuffer])
     ensampQ=EG1wYFE1in()[1]
     weightQ=ensampQ/np.sum(np.array(templistQ)-bkgrdQ)
     return np.array(weightQ*(np.array(templistQ)-bkgrdQ))
 
 def weich2in1w(chnoQ,sockQ):
     templistQ=rch(chnoQ,sockQ)
-    bkgrdQ=np.mean(templistQ[:380])
+    if np.abs(len(templistQ)-10000)<10:
+        bkgrdbuffer=380
+    elif np.abs(len(templistQ)-1000)<10:
+        bkgrdbuffer=38
+    else:
+        print('Warning: unanticipated pulse shape array length of '+str(len(templistQ))+', bkgrd subtraction may be off...')
+        bkgrdbuffer=1
+    bkgrdQ=np.mean(templistQ[:bkgrdbuffer])
     ensampQ=EG1w2in()
     tpva=EpicsSignal(str('MEC:PFN:CH'+str(2*(chnoQ-1)+1)+':ENABLE_RBV'))
     tpvb=EpicsSignal(str('MEC:PFN:CH'+str(2*(chnoQ-1)+2)+':ENABLE_RBV'))
@@ -1801,7 +1780,14 @@ def weich2in1w(chnoQ,sockQ):
 
 def weich2in2w(chnoQ,sockQ): #was weich
     templistQ=rch(chnoQ,sockQ)
-    bkgrdQ=np.mean(templistQ[:380])
+    if np.abs(len(templistQ)-10000)<10:
+        bkgrdbuffer=380
+    elif np.abs(len(templistQ)-1000)<10:
+        bkgrdbuffer=38
+    else:
+        print('Warning: unanticipated pulse shape array length of '+str(len(templistQ))+', bkgrd subtraction may be off...')
+        bkgrdbuffer=1
+    bkgrdQ=np.mean(templistQ[:bkgrdbuffer])
     ensampQ=EG()
     tpva=EpicsSignal(str('MEC:PFN:CH'+str(2*(chnoQ-1)+1)+':ENABLE_RBV'))
     tpvb=EpicsSignal(str('MEC:PFN:CH'+str(2*(chnoQ-1)+2)+':ENABLE_RBV'))
@@ -2407,7 +2393,7 @@ def ScanAndShift(HSQ,LS1Q):
 def FETsurveyfull():
     HSQ=HOpen()
     time.sleep(.15)
-    LS1Q=LOpen()
+    LS1Q=LXOpen('1')
     time.sleep(.15)
     qdatalist=[]
     for ii in range(140):
@@ -2424,7 +2410,7 @@ def FETsurveyfull():
     time.sleep(.15)
     HClose(HSQ)
     time.sleep(.15)
-    LClose(LS1Q)
+    LXClose(LS1Q)
     time.sleep(.15)
     return qdatalist
     
@@ -2983,63 +2969,63 @@ def YFEwatch(ShotNumQ):
     ax2=fig.add_subplot(212)
     xq=list();yq=list();
     try:
-        SA=LAOpen();time.sleep(.15);
+        SLA=LXOpen('A');time.sleep(.15);
         for ii in range(ShotNumQ):
-            newops0F=TraceFormatting(rch(1,SA),[25,500],1)[:26]
+            newops0F=TraceFormatting(rch(1,SLA),[25,500],1)[:26]
             line2.set_ydata(newops0F)
             meanerr=np.sum(np.abs(pwtF[:26]-newops0F[:26])/pwtF[:26])/len(pwtF[:26])
             xq.append(ii+1);yq.append(meanerr);
             ax2.scatter(xq[-1],yq[-1]);
             fig.canvas.draw()
             time.sleep(.1)
-        LAClose(SA);time.sleep(.15);
+        LXClose(SLA);time.sleep(.15);
     except:
-        LAClose(SA);
+        LXClose(SLA);
         print('Error!')
         return False
 
 def YFEshot():
     try:
-        SA=LAOpen();time.sleep(.15);
+        SLA=LXOpen('A');time.sleep(.15);
         for ii in range(100):
-            newops0F=TraceFormatting(rch(1,SA),[25,500],1)[:26]
+            newops0F=TraceFormatting(rch(1,SLA),[25,500],1)[:26]
             meanerr=np.sum(np.abs(pwtF[:26]-newops0F[:26])/pwtF[:26])/len(pwtF[:26])
             if meanerr < 0.04: #.15
                 time.sleep(0.1);shotpush();time.sleep(0.1);
                 break
             time.sleep(.1)
-        newops0F=TraceFormatting(rch(1,SA),[25,500],1)[:26]
+        newops0F=TraceFormatting(rch(1,SLA),[25,500],1)[:26]
         meanerr=np.sum(np.abs(pwtF[:26]-newops0F[:26])/pwtF[:26])/len(pwtF[:26])
         print(meanerr)
         epll([pwtF,newops0F])
-        LAClose(SA);time.sleep(.15);
+        LXClose(SLA);time.sleep(.15);
         psacqx()
         psefc()
     except:
-        LAClose(SA);
+        LXClose(SLA);
         print('Error!')
         return False
 
 def YFEerr():
     xq=list();eq=list();
     try:
-        SA=LAOpen();
+        SLA=LXOpen('A');
         ii=0
         time.sleep(.15);
         while True:
             ii+=1
             if ii%1000 == 0:
                 print(str('Iter: '+str(ii)))
-            NewTraceQ=readchan(1,SA)['DATA']
+            NewTraceQ=readchan(1,SLA)['DATA']
             newops0F=TraceFormatting(NewTraceQ,[25,500],1)[:26]
             meanerr=np.sum(np.abs(pwtF[:26]-newops0F[:26])/pwtF[:26])/len(pwtF[:26])
             xq.append(meanerr);
             eq.append(EG1wYFE1in()[0])
     except KeyboardInterrupt:
-        LAClose(SA);time.sleep(.15);
+        LXClose(SLA);time.sleep(.15);
         return xq,eq
     finally:
-        LAClose(SA);
+        LXClose(SLA);
         print('Error!')
         return False
 
@@ -3101,7 +3087,14 @@ def wIter2(sQ,wQ,DurationListQ,StartStopListQ,zzJQ,mapnowQ,stepQQ):#same as abov
     DurListQ=np.cumsum([0]+DurationListQ)
     w1,w2=0,int(DurListQ[-1]*4)+5 # 50-5, 50+int(DurListQ[-1]*4)+5
     PGQ=PulseGoal(DurationListQ,StartStopListQ)
-    PMQ=PulseMax(DurationListQ,StartStopListQ,zzJQ)
+    if np.abs(len(sQ)-10000)<10:
+        PMQcorr=1
+    elif np.abs(len(sQ)-1000)<10:
+        PMQcorr=10
+    else:
+        print('Warning: unanticipated pulse shape array length of '+str(len(templistQ))+', PulseMax scaling may be off...')
+        PMQcorr=1
+    PMQ=PulseMax(DurationListQ,StartStopListQ,zzJQ)*PMQcorr
     wnew2=FixEdges(UpdatingShapingAlgorithm(PGQ,TraceFormatting2(sQ,mapnowQ,PMQ),wQ,stepQQ),DurationListQ,StartStopListQ)
     #epll([wQ[w1:w2],wnew2[w1:w2],np.array(TraceFormatting2(sQ,mapnowQ,PMQ))[w1:w2]*.6,np.array(PGQ)[w1:w2]*.6])
     epll([0.*np.array(wnew2[w1:w2]),np.array(wnew2[w1:w2])-np.array(wQ[w1:w2]),np.array(TraceFormatting2(sQ,mapnowQ,PMQ))[w1:w2]*.6,np.array(PGQ)[w1:w2]*.6])
@@ -3279,26 +3272,26 @@ def psacqx(save_flag=True, RunNumQQ=9000):#was psacqx_noLecroyA()
         RunName=RunName+'IJ'
 
     try:
-        SLA=LAOpen(); time.sleep(.15);#changed back to all LeCroyA
+        SLA=LXOpen('A'); time.sleep(.15);#changed back to all LeCroyA
         weichYFE00=np.array(weichYFE1w(1,SLA));
         weich1in1wCD=np.array(weich1in1w(2,SLA));
-        time.sleep(.15); LAClose(SLA); time.sleep(.15);
+        time.sleep(.15); LXClose(SLA); time.sleep(.15);
     except:
         try:
-            LAClose(SLA);
+            LXClose(SLA);
         except:
             pass
         weichYFE00=np.zeros(5002);weich1in1wCD=np.zeros(5002);
         print('Error! SLA')
 
     try:
-        SLB=LBOpen(); time.sleep(.15);
+        SLB=LXOpen('B'); time.sleep(.15);
         weich2in1wAB=np.array(weich2in1w(1,SLB)); weich2in1wEF=np.array(weich2in1w(2,SLB));
         weich2in1wGH=np.array(weich2in1w(3,SLB)); weich2in1wIJ=np.array(weich2in1w(4,SLB));
-        time.sleep(.15); LBClose(SLB); time.sleep(.15);
+        time.sleep(.15); LXClose(SLB); time.sleep(.15);
     except:
         try:
-            LBClose(SLB);
+            LXClose(SLB);
         except:
             pass
         weich2in1wAB=np.zeros(5002); weich2in1wEF=np.zeros(5002);weich2in1wGH=np.zeros(5002); weich2in1wIJ=np.zeros(5002);
@@ -3310,13 +3303,13 @@ def psacqx(save_flag=True, RunNumQQ=9000):#was psacqx_noLecroyA()
     #time.sleep(.15); L2Close(SL2); time.sleep(.15);
 
     try:
-        SL2=L2Open(); time.sleep(.15);
+        SL2=LXOpen('B'); time.sleep(.15);#usually LXOpen('2'); fix when LeCroy comes back
         weich2in2wAB=np.array(weich2in2w(1,SL2)); weich2in2wEF=np.array(weich2in2w(2,SL2));
         weich2in2wGH=np.array(weich2in2w(3,SL2)); weich2in2wIJ=np.array(weich2in2w(4,SL2));
-        time.sleep(.15); L2Close(SL2); time.sleep(.15);
+        time.sleep(.15); LXClose(SL2); time.sleep(.15);
     except:
         try:
-            L2Close(SL2);
+            LXClose(SL2);
         except:
             pass
         print('Error! SL2')
@@ -3469,14 +3462,28 @@ def psefc(JreqQ=0,AQQ=0.0):
         BumpQ=2#3 or 4
     else:
         BumpQ=1.5
+    if np.abs(len(stoday[-1])-10000)<10:
+        bkgrdbuffer=380
+    elif np.abs(len(stoday[-1])-1000)<10:
+        bkgrdbuffer=38
+    else:
+        print('Warning: unanticipated pulse shape array length of '+str(len(stoday[-1]))+', bkgrd subtraction may be off...')
+        bkgrdbuffer=1
     try:#this is to check for bad scope traces; rewrite this later
-        if np.sum(abs(stoday[-1])[:350]) > 1:
+        if np.sum(abs(stoday[-1])[:bkgrdbuffer]) > 1:
             BumpQ=0
             print('To whom it may concern: \n The next shot will not include an update to the pulse shaper because the saved scope trace seems abnormal. \n Did you switch to 10Hz and clear the scope traces before you saved them? or maybe did you disable or enable some amplifier arms before you saved the scope traces? or maybe you accidentally told the script to take more than 1 shot? \n If you answered yes to any of these questions, please don\'t do that again. (If you did something else out of the ordinary that could be linked to this anomaly, please let someone know.) \n\n Sincerely, \nThe Laser :)')
     except:
         pass
     AQ=AQQ*BumpQ#.03,.035,.05 seems too big most of the time
     if len(wtoday) > 0:
+        if len(stoday[-1]) == 10002:
+            mapnow=LMap()
+        elif len(stoday[-1]) == 1002:
+            mapnow=[5,100]
+        else:
+            print('Unanticipated pulse shot array length: '+str(len(stoday[-1])));
+            print('Aborting...');return
         wupd=wIter2(stoday[-1],np.array(wtoday[-1])/28000.,Psns,SSs,Jreq,mapnow,AQ)
     else:
         print('No shots yet today; beginning with pre-loaded shape')
@@ -3497,7 +3504,7 @@ def psefc10Hz(pwt=0,numIterQ=50,AQQ=0.03,displayPlot=False):#was B; replaced whe
     SSs=pickle.load(open(psfpQ+'SSs.p','rb'))
     Psns=pickle.load(open(psfpQ+'Psns.p','rb'))
     try:
-        SLA=LAOpen();time.sleep(.15);S=HOpen();time.sleep(.15);#replaced w/LeCroyA
+        SLA=LXOpen('A');time.sleep(.15);S=HOpen();time.sleep(.15);#replaced w/LeCroyA
         ops00=rch(1,SLA);time.sleep(0.1);
         meanerr=[]
         print('Start loop')
@@ -3523,10 +3530,10 @@ def psefc10Hz(pwt=0,numIterQ=50,AQQ=0.03,displayPlot=False):#was B; replaced whe
         if displayPlot:
             epll([pwtF,ops0F])
             epl(meanerr)
-        HClose(S);time.sleep(.15);LAClose(SLA);time.sleep(.15)#replace w/ LeCroyA
+        HClose(S);time.sleep(.15);LXClose(SLA);time.sleep(.15)#replace w/ LeCroyA
     except:
         print('Failed')
-        HClose(S);time.sleep(.15);LAClose(SLA);time.sleep(.15)#replace w/ LeCroyA
+        HClose(S);time.sleep(.15);LXClose(SLA);time.sleep(.15)#replace w/ LeCroyA
 
 def psupd(newwavQ):
     ###EXECUTE THIS FILE ONCE YOU'RE SATISFIED WITH THE WAVEFORM UPDATE
@@ -3924,13 +3931,13 @@ def save_scope_to_eLog(chan_to_eLog=2):
     except:
         print('Failed to connect to eLog!')
     try:
-        S1=LOpen();time.sleep(.15);
+        S1=LXOpen('1');time.sleep(.15);
         timestamp=datetime.now().strftime('%Y%m%d_%H%M%S')
         chdata=rchallxy(S1);
-        LClose(S1);time.sleep(.15);
+        LXClose(S1);time.sleep(.15);
     except:
         print('Failed to read out data!')
-        LClose(S1);time.sleep(.15);
+        LXClose(S1);time.sleep(.15);
     for ii in range(4):
         np.savetxt(fpQ+'lecroy1_ch'+str(ii+1)+'_'+timestamp+'.dat',tuple(chdata[ii]))
     eplxysav(chdata[chan_to_eLog-1][0],chdata[chan_to_eLog-1][1],fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'.png',abs_path=True)
@@ -3989,7 +3996,7 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
     time.sleep(4)
     pvslicerEC.put(43);pvslicerenable.put(1);#enable these...
     try:
-        SLA=LAOpen();time.sleep(.15);
+        SLA=LXOpen('A');time.sleep(.15);
         tempchk1=rch(1,SLA);time.sleep(.15);tempchk2=rch(1,SLA);
         if np.sum(np.abs(tempchk1-tempchk2))<1e-6:
             print('Warning: scope trace doesn\'t appear to be updating, please check scope! Abort? [enter y/n]')
@@ -4001,7 +4008,7 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
                 print('OK, I hope you know what you\'re doing!')
     except:
         print('Scope error, check scope status! Aborting...')
-        LAClose(SLA);time.sleep(.15);
+        LXClose(SLA);time.sleep(.15);
         return
     startposlist=[SHGrbv.get() for SHGrbv in SHGpvlist];
     newposlist=startposlist[:]
@@ -4015,7 +4022,7 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
             SHGpvlist[ii].put(startposlist[ii]+alph*(-.1+.01*0))
     currentshutter=0;#trying to re-open a shutter in case of failure...
     try:
-        SLA=LAOpen();time.sleep(.15);#changed to LecroyA since repair
+        SLA=LXOpen('A');time.sleep(.15);#changed to LecroyA since repair
         for ii in range(4):
             if armlist[ii] in armsQ:
                 if armlist[ii] in ['EF','GH']:
@@ -4047,10 +4054,10 @@ def SHG_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
             else:
                 print('Skipping '+armlist[ii]+'...')
                 pass
-        LAClose(SLA);time.sleep(.15);#changed to LeCroyA
+        LXClose(SLA);time.sleep(.15);#changed to LeCroyA
     except:
         print('Failed! Restoring original values and attempting to re-open most-recent shutter... you should verify!')
-        LAClose(SLA);time.sleep(.15);#changed to LeCroyA
+        LXClose(SLA);time.sleep(.15);#changed to LeCroyA
         if currentshutter > 0:
             toggle_TTL_shutter('open'+armlist[currentshutter],display=False);
         for ii in range(4):
@@ -4123,7 +4130,7 @@ def HWP_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
     currentshutter=0;#trying to re-open a shutter in case of failure...
     stepQ=1.0;rangeQ=20.0;
     try:
-        SLA=LAOpen();time.sleep(.15);#changed to LecroyA since repair
+        SLA=LXOpen('A');time.sleep(.15);#changed to LecroyA since repair
         for ii in range(4):
             if armlist[ii] in armsQ:
                 print('Begin optimizing '+armlist[ii]+'... ',end='',flush=True);
@@ -4151,10 +4158,10 @@ def HWP_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start i
             else:
                 print('Skipping '+armlist[ii]+'...')
                 pass
-        LAClose(SLA);time.sleep(.15);#changed to LeCroyA
+        LXClose(SLA);time.sleep(.15);#changed to LeCroyA
     except:
         print('Failed! Restoring original values and attempting to re-open most-recent shutter... you should verify!')
-        LAClose(SLA);time.sleep(.15);#changed to LeCroyA
+        LXClose(SLA);time.sleep(.15);#changed to LeCroyA
         if currentshutter > 0:
             toggle_TTL_shutter('open'+armlist[currentshutter],display=False);
         for ii in range(4):
@@ -4308,7 +4315,171 @@ def pickledump2(objQ,fullFileNameQ):
     #os.chmod(fullFileNameQ,stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO);#
     return
 
+def plzchkpv(inpvnam):
+    try:
+        qp=EpicsSignal(inpvnam);
+        currval=qp.get()
+        msgout = str(currval)+' vs oldval'
+    except TimeoutError as err:
+        msgout = 'Timeout!'
+    return msgout
+
+def plzchksrv(inpvnam,printall=False):
+    pvnam=re.findall('^([^\.]+)',inpvnam);
+    iocnam=re.findall('/reg/d/iocData/(.+)/iocInfo',os.popen('grep_pv '+pvnam[0]).read());
+    hostnam=re.findall('host: \'([^,]+)\', ', os.popen('grep_ioc '+iocnam[0]).read());
+    netstat=os.system('ping -c 1 -w2 '+hostnam[0]+' > /dev/null 2>&1')
+    locstat=re.findall('Location: (.+)\n', os.popen('netconfig search '+hostnam[0]).read());
+    #msgout='PV: '+'{:<34}'.format(pvnam[0])+'IOC: '+'{:<26}'.format(iocnam[0])+'Host: '+'{:<16}'.format(hostnam[0])+'Host rack:'+'{:<19}'.format(locstat[0])+' Host Ping?: '+str('true ' if netstat==0 else 'false')
+    msgout=['{:<34}'.format(pvnam[0]),'{:<26}'.format(iocnam[0]),'{:<19}'.format(hostnam[0]),'{:<25}'.format(locstat[0]),cstr('{:<6}'.format(str('true ' if netstat==0 else 'false')),str('blink,r' if netstat!=0 else ''))]
+    return msgout
+    
+def pv_checker():
+    qqpl=np.genfromtxt(psfilepath()+'_ps_pvlist.txt',delimiter='\n',dtype=str);pvmsg=[];
+    for eapv in qqpl:
+        pvmsg.append(plzchkpv(eapv))
+    with multiprocessing.Pool() as pool:
+        srvmsg=pool.map(plzchksrv,qqpl)
+    print(''.join(['{:<34}'.format('PV name'),'{:<26}'.format('IOC name'),'{:<19}'.format('Host name'),'{:<25}'.format('Host location'),'{:<6}'.format('Ping?'),'{:<15}'.format('PV value?')]))
+    for ii in range(len(pvmsg)):
+        print(''.join(srvmsg[ii])+pvmsg[ii])
+    return #datq
+
+def plzchkcmp(cmpnam):
+    netstat=os.system('ping -c 1 -w2 '+cmpnam[0]+' > /dev/null 2>&1')
+    msgout=['{:<15}'.format(cmpnam[2])+'{:<28}'.format(cmpnam[0])+cstr('{:<6}'.format(str('true ' if netstat==0 else 'false')),str('blink,r' if netstat!=0 else ''))]
+    return msgout
+
+def MECcompylist():
+    qqip=['172.21.46.147','172.21.46.148','172.21.46.146','172.21.46.60','172.21.46.128','172.21.46.100','172.21.46.120','172.21.46.159','172.21.46.197','172.21.46.142','172.21.46.70','172.21.46.78','172.21.46.71','172.21.46.88','172.21.46.198','172.21.46.213','172.21.46.215','172.21.46.136','172.21.46.218','172.21.46.219','172.21.46.182','172.21.46.144'];
+    qqn=['evo1','evo2','gaia','lecroy1','lecroy2','lecroya','lecroyb','PIMikroMove','spider','spectrometer','tundra','topas','visar1','visar2','vitara','rga','emp','phasicslaptop','phasics1','phasics2','dacage','legend']
+    nmlist=['mec-las-laptop06','mec-las-laptop07','mec-las-laptop05','scope-ics-mectc1-1','scope-ics-meclas-lecroy01','scope-ics-meclas-lecroy-a','scope-ics-meclas-lecroy-b','mec-las-laptop09','mec-las-laptop11','mec-las-laptop01','win-ics-mec-tundra','mec-las-laptop12','win-ics-mec-visar1','win-ics-mec-visar2','mec-las-vitara','mec-rga-laptop','scope-ics-mec-tektronix','mec-phasics-laptop01','win-ics-mec-phasics01','win-ics-mec-phasics02','mec-visar-cage','mec-las-laptop03']
+    return list(zip(nmlist,qqip,qqn))
+
+def cmp_checker():
+    cmpmsg=[];
+    #qqpl=[eacmp[0] for eacmp in MECcompylist()]
+    qqpl=MECcompylist()
+    with multiprocessing.Pool() as pool:
+        cmpmsg=pool.map(plzchkcmp,qqpl)
+    print('{:<15}'.format('Computer name')+'{:<28}'.format('IP shorthand')+'{:<6}'.format('Ping?'))
+    for ii in range(len(cmpmsg)):
+        print(''.join(cmpmsg[ii]))
+    return
+
+def tc():
+    colors=['ENDC','BLINK','K','R','G','Y','B','M','C','W','BK','BR','BG','BY','BB','BM','BC','BW','BRK','BRR','BRG','BRY','BRB','BRM','BRC','BRW','BBRK','BBRR','BBRG','BBRY','BBRB','BBRM','BBRC','BBRW']#B- for background, BR+ for 
+    colorcodes=['\033['+str(ii)+'m' for ii in [0,5,30,31,32,33,34,35,36,37,40,41,42,43,44,45,46,47,90,91,92,93,94,95,96,97,100,101,102,103,104,105,106,107]];
+    return dict(zip(colors,colorcodes))
+    
+def cprint(strQ,paramsQ):#delim with commas
+    prargs=''
+    if len(paramsQ) == 0:
+        paramsQ='ENDC'
+    for eaarg in paramsQ.split(','):
+        prargs+=tc()[eaarg.upper()]
+    print(f"{prargs}"+strQ+f"{tc()['ENDC']}")
+    return
+
+def cstr(strQ,paramsQ):
+    prargs=''
+    if len(paramsQ) == 0:
+        paramsQ='ENDC'
+    for eaarg in paramsQ.split(','):
+        prargs+=tc()[eaarg.upper()]
+    return f"{prargs}"+strQ+f"{tc()['ENDC']}"
+    
+def keybd():
+    return dict(zip(['key_Enter','key_Esc','key_Up','key_Dn','key_Rt','key_Lt'],[13,27,'\033[A','\033[B','\033[C','\033[D']))
+
+def getch():
+    fdInput = sys.stdin.fileno()
+    termAttr = termios.tcgetattr(0)
+    tty.setraw(fdInput)
+    ch = sys.stdin.buffer.raw.read(4).decode(sys.stdin.encoding)
+    if len(ch) == 1:
+        if ord(ch) < 32 or ord(ch) > 126:
+            ch = ord(ch)
+    elif ord(ch[0]) == 27:
+        ch = '\033' + ch[1:]
+    termios.tcsetattr(fdInput, termios.TCSADRAIN, termAttr)
+    return ch
+    
+def pldemo():
+    plt.ion() 
+    fig,axs=plt.subplots(1,1) 
+    plt.show()
+    xpos=85;ypos=65;xdel=20;ydel=20;
+    Z=[[np.exp(-((ii-xpos)/10)**2-((jj-ypos)/7.5)**2) for ii in range(100)] for jj in range(100)]
+    Zref=[[1 if np.exp(-((ii-50)/2)**2-((jj-50)/2)**2) > 0.5 else 0 for ii in range(100)] for jj in range(100)]
+    ax1=axs.imshow(Z,origin='lower')
+    axs.imshow(Zref,alpha=0.1,origin='lower')
+    #ax1,=axs[0].plot(xdat,ydat)
+    #ax2,=axs[1].plot(xdat,ydat) 
+    #ax4,=axs[1,1].plot(xdat,ydat) 
+    axss=[ax1]#[ax1,ax2,ax3,ax4]
+    cont=True
+    while cont:
+        axss[0].set_data(Z)
+        fig.canvas.draw_idle()
+        plt.pause(0.025)
+        qq=getch()
+        if qq==keybd()['key_Dn']:
+            ypos-=ydel
+        elif qq==keybd()['key_Up']:
+            ypos+=ydel
+        elif qq==keybd()['key_Rt']:
+            xpos+=xdel
+        elif qq==keybd()['key_Lt']:
+            xpos-=xdel
+        elif qq=='w':
+            ydel=ydel*2
+        elif qq=='s':
+            ydel=ydel/2
+        elif qq=='a':
+            xdel=xdel/2
+        elif qq=='d':
+            xdel=xdel*2
+        elif qq==keybd()['key_Esc']:
+            cont=False
+        else:
+            pass
+        Z=[[np.exp(-((ii-xpos)/10)**2-((jj-ypos)/7.5)**2) for ii in range(100)] for jj in range(100)]
+        print('['+str(xpos)+','+str(ypos)+']')
+    plt.ioff()
+    
+def HWPclear_start():
+    pvabef=['MEC:NS1:MMS:0'+str(num)+':SEQ_SELN' for num in [2,1]]#clear start for mforce chassis
+    try:
+        for eapv in pvabef:
+            temppv=EpicsSignal(eapv);
+            temppv.put(1)
+    except:
+        print('Failed!')
+        
+def NewportRestart():
+    xps3and4=['1724','2532']
+    ipvlist=['MEC:LAS:MMN_'+unitno+'.IALL' for unitno in xps3and4]
+    rpvlist=['MEC:LAS:MMN_'+unitno+'.RALL' for unitno in xps3and4]
+    try:
+        for eapv in ipvlist:
+            temppv=EpicsSignal(eapv);
+            temppv.put(1)
+        dotsleep(10)
+        for eapv in rpvlist:
+            temppv=EpicsSignal(eapv);
+            temppv.put(1)
+    except:
+        print('Failed!')
+
+def dotsleep(tSEC):
+    for ii in range(tSEC):
+        print('.',end='',flush=True);time.sleep(1);
+    print('*')
+
+
+    
 def reloadchk():
-    print('Reload check: 20210810')
+    print('Reload check: 20210924')
 
 
