@@ -878,184 +878,23 @@ def send_and_reply(msg,SocketName):
             l -= len(d)
     return data
 
-##fields = [
-##    [0, "DESCRIPTOR_NAME", "string"], 
-##    [16, "TEMPLATE_NAME", "string"], 
-##    [32, "COMM_TYPE", "enum", {
-##        0: "byte", 
-##        1: "word", 
-##    }], 
-##    [34, "COMM_ORDER", "enum", {
-##        0: "HIFIRST", 
-##        1: "LOFIRST", 
-##    }], 
-##    [36, "WAVE_DESCRIPTOR", "long"], 
-##    [40, "USER_TEXT", "long"], 
-##    [44, "RES_DESC1", "long"], 
-##    [48, "TRIGTIME_ARRAY", "long"], 
-##    [52, "RIS_TIME_ARRAY", "long"], 
-##    [56, "RES_ARRAY1", "long"], 
-##    [60, "WAVE_ARRAY_1", "long"], 
-##    [64, "WAVE_ARRAY_2", "long"], 
-##    [68, "RES_ARRAY2", "long"], 
-##    [72, "RES_ARRAY3", "long"], 
-##    [76, "INSTRUMENT_NAME", "string"], 
-##    [92, "INSTRUMENT_NUMBER", "long"], 
-##    [96, "TRACE_LABEL", "string"], 
-##    [112, "RESERVED1", "word"], 
-##    [114, "RESERVED2", "word"], 
-##    [116, "WAVE_ARRAY_COUNT", "long"], 
-##    [120, "PNTS_PER_SCREEN", "long"], 
-##    [124, "FIRST_VALID_PNT", "long"], 
-##    [128, "LAST_VALID_PNT", "long"], 
-##    [132, "FIRST_POINT", "long"], 
-##    [136, "SPARSING_FACTOR", "long"], 
-##    [140, "SEGMENT_INDEX", "long"], 
-##    [144, "SUBARRAY_COUNT", "long"], 
-##    [148, "SWEEPS_PER_ACQ", "long"], 
-##    [152, "POINTS_PER_PAIR", "word"], 
-##    [154, "PAIR_OFFSET", "word"], 
-##    [156, "VERTICAL_GAIN", "float"], 
-##    [160, "VERTICAL_OFFSET", "float"], 
-##    [164, "MAX_VALUE", "float"], 
-##    [168, "MIN_VALUE", "float"], 
-##    [172, "NOMINAL_BITS", "word"], 
-##    [174, "NOM_SUBARRAY_COUNT", "word"], 
-##    [176, "HORIZ_INTERVAL", "float"], 
-##    [180, "HORIZ_OFFSET", "double"], 
-##    [188, "PIXEL_OFFSET", "double"], 
-##    [196, "VERTUNIT", "unit_definition"], 
-##    [244, "HORUNIT", "unit_definition"], 
-##    [292, "HORIZ_UNCERTAINTY", "float"], 
-##    [296, "TRIGGER_TIME", "time_stamp"], 
-##    [312, "ACQ_DURATION", "float"], 
-##    [316, "RECORD_TYPE", "enum", {
-##        0: "single_sweep", 
-##        1: "interleaved", 
-##        2: "histogram", 
-##        3: "graph", 
-##        4: "filter_coefficient", 
-##        5: "complex", 
-##        6: "extrema", 
-##        7: "sequence_obsolete", 
-##        8: "centered_RIS", 
-##        9: "peak_detect", 
-##    }], 
-##    [318, "PROCESSING_DONE", "enum", {
-##        0: "no_processing", 
-##        1: "fir_filter", 
-##        2: "interpolated", 
-##        3: "sparsed", 
-##        4: "autoscaled", 
-##        5: "no_result", 
-##        6: "rolling", 
-##        7: "cumulative", 
-##    }], 
-##    [320, "RESERVED5", "word"], 
-##    [322, "RIS_SWEEPS", "word"], 
-##    [324, "TIMEBASE", "enum", {
-##        0: "1_ps/div", 
-##        1: "2_ps/div", 
-##        2: "5_ps/div", 
-##        3: "10_ps/div", 
-##        4: "20_ps/div", 
-##        5: "50_ps/div", 
-##        6: "100_ps/div", 
-##        7: "200_ps/div", 
-##        8: "500_ps/div", 
-##        9: "1_ns/div", 
-##        10: "2_ns/div", 
-##        11: "5_ns/div", 
-##        12: "10_ns/div", 
-##        13: "20_ns/div", 
-##        14: "50_ns/div", 
-##        15: "100_ns/div", 
-##        16: "200_ns/div", 
-##        17: "500_ns/div", 
-##        18: "1_us/div", 
-##        19: "2_us/div", 
-##        20: "5_us/div", 
-##        21: "10_us/div", 
-##        22: "20_us/div", 
-##        23: "50_us/div", 
-##        24: "100_us/div", 
-##        25: "200_us/div", 
-##        26: "500_us/div", 
-##        27: "1_ms/div", 
-##        28: "2_ms/div", 
-##        29: "5_ms/div", 
-##        30: "10_ms/div", 
-##        31: "20_ms/div", 
-##        32: "50_ms/div", 
-##        33: "100_ms/div", 
-##        34: "200_ms/div", 
-##        35: "500_ms/div", 
-##        36: "1_s/div", 
-##        37: "2_s/div", 
-##        38: "5_s/div", 
-##        39: "10_s/div", 
-##        40: "20_s/div", 
-##        41: "50_s/div", 
-##        42: "100_s/div", 
-##        43: "200_s/div", 
-##        44: "500_s/div", 
-##        45: "1_ks/div", 
-##        46: "2_ks/div", 
-##        47: "5_ks/div", 
-##        100: "EXTERNAL", 
-##    }], 
-##    [326, "VERT_COUPLING", "enum", {
-##        0: "DC_50_Ohms", 
-##        1: "ground", 
-##        2: "DC_1MOhm", 
-##        3: "ground", 
-##        4: "AC_1MOhm", 
-##    }], 
-##    [328, "PROBE_ATT", "float"], 
-##    [332, "FIXED_VERT_GAIN", "enum", {
-##        0: "1_uV/div", 
-##        1: "2_uV/div", 
-##        2: "5_uV/div", 
-##        3: "10_uV/div", 
-##        4: "20_uV/div", 
-##        5: "50_uV/div", 
-##        6: "100_uV/div", 
-##        7: "200_uV/div", 
-##        8: "500_uV/div", 
-##        9: "1_mV/div", 
-##        10: "2_mV/div", 
-##        11: "5_mV/div", 
-##        12: "10_mV/div", 
-##        13: "20_mV/div", 
-##        14: "50_mV/div", 
-##        15: "100_mV/div", 
-##        16: "200_mV/div", 
-##        17: "500_mV/div", 
-##        18: "1_V/div", 
-##        19: "2_V/div", 
-##        20: "5_V/div", 
-##        21: "10_V/div", 
-##        22: "20_V/div", 
-##        23: "50_V/div", 
-##        24: "100_V/div", 
-##        25: "200_V/div", 
-##        26: "500_V/div", 
-##        27: "1_kV/div", 
-##    }], 
-##    [334, "BANDWIDTH_LIMIT", "enum", {
-##        0: "off", 
-##        1: "on", 
-##    }], 
-##    [336, "VERTICAL_VERNIER", "float"], 
-##    [340, "ACQ_VERT_OFFSET", "float"], 
-##    [344, "WAVE_SOURCE", "enum", {
-##        0: "CHANNEL_1", 
-##        1: "CHANNEL_2", 
-##        2: "CHANNEL_3", 
-##        3: "CHANNEL_4", 
-##        9: "UNKNOWN", 
-##    }], 
-##]
+def send_only(msg,SocketName):
+    x = bytearray()
+    msg=bytearray(msg,'utf8') ##NEW FIX ATTEMPT
+    x.append(0x81)   # Data with EOI terminator
+    x.append(1)      # Header v1
+    x.append(0)      # Sequence Number
+    x.append(0)      # Spare
+    l = len(msg) + 1
+    x.append((l >> 24) & 0xff)  # MSB!
+    x.append((l >> 16) & 0xff)
+    x.append((l >> 8) & 0xff)
+    x.append((l >> 0) & 0xff)
+    x.extend(msg)
+    ##x.append('\n')
+    x.extend(bytearray('\n','utf8'))#WAS APPEND
+    SocketName.sendall(x)
+    return
 
 def LFields():
     fields = [
@@ -1169,7 +1008,7 @@ def LFields():
         32: "50_ms/div", 
         33: "100_ms/div", 
         34: "200_ms/div", 
-        35: "500_ms/div", 
+        35: "500_ms/div",
         36: "1_s/div", 
         37: "2_s/div", 
         38: "5_s/div", 
@@ -1350,7 +1189,7 @@ def DesiredShapeToList(DesiredOutputPulseShapeQ): #accept list or csv of 140 pts
             elif ',' in RawListQ:
                 ListedValues=RawListQ.split(',')
             else:
-                print('Unrecognized format on input file.')
+                print('Unrecognized format on inrchput file.')
                 return
         if len(ListedValues) != 140:
             print('File must have 140 entries; entry count: '+str(len(ListedValues)))
@@ -2093,6 +1932,7 @@ def YFEon():
             print('YFE LASER ON')
         else:
             print('Turn on sequence failed. Check emission!')
+            YFEoff();
             return False
     if pvPC.get() != 1:
         print('Failed to turn on Pockels cell!')
@@ -2444,7 +2284,7 @@ def EG():
     egh=pvegh.get()
     pveij=EpicsSignal('MEC:LAS:GENTEC:04:CH2:MEAS')
     eij=pveij.get()
-    EAB,EEF,EGH,EIJ=round(1.17*eab/.00760/1.006/1.0412/1.0799/1.0478,4),round(.860*eef/.00686/1.006/.9634/0.8410/0.9517,4),round(.897*egh/.00655/1.015/.9692/0.883/0.9650,4),round(1.25*eij/.00608/1.015/1.1232/1.075/1.0863,4)
+    EAB,EEF,EGH,EIJ=round(1.05*1.17*eab/.00760/1.006/1.0412/1.0799/1.0478,4),round(1.13*.860*eef/.00686/1.006/.9634/0.8410/0.9517,4),round(.914*.897*egh/.00655/1.015/.9692/0.883/0.9650,4),round(1.07*1.25*eij/.00608/1.015/1.1232/1.075/1.0863,4)
     guessarray=[[EAB,EEF,EGH,EIJ],round(EAB+EEF,4),round(EGH+EIJ,4),round(EAB+EEF+EGH+EIJ,4)]
     #print(guessarray)
     try:
@@ -3272,7 +3112,7 @@ def psacqx(save_flag=True, RunNumQQ=9000):#was psacqx_noLecroyA()
         RunName=RunName+'IJ'
 
     try:
-        SLA=LXOpen('A'); time.sleep(.15);#changed back to all LeCroyA
+        SLA=LXOpen('A'); time.sleep(.15);#usually LXOpen('A');
         weichYFE00=np.array(weichYFE1w(1,SLA));
         weich1in1wCD=np.array(weich1in1w(2,SLA));
         time.sleep(.15); LXClose(SLA); time.sleep(.15);
@@ -3285,7 +3125,7 @@ def psacqx(save_flag=True, RunNumQQ=9000):#was psacqx_noLecroyA()
         print('Error! SLA')
 
     try:
-        SLB=LXOpen('B'); time.sleep(.15);
+        SLB=LXOpen('B'); time.sleep(.15);#usually LXOpen('B');
         weich2in1wAB=np.array(weich2in1w(1,SLB)); weich2in1wEF=np.array(weich2in1w(2,SLB));
         weich2in1wGH=np.array(weich2in1w(3,SLB)); weich2in1wIJ=np.array(weich2in1w(4,SLB));
         time.sleep(.15); LXClose(SLB); time.sleep(.15);
@@ -3303,7 +3143,7 @@ def psacqx(save_flag=True, RunNumQQ=9000):#was psacqx_noLecroyA()
     #time.sleep(.15); L2Close(SL2); time.sleep(.15);
 
     try:
-        SL2=LXOpen('B'); time.sleep(.15);#usually LXOpen('2'); fix when LeCroy comes back
+        SL2=LXOpen('2'); time.sleep(.15);#usually LXOpen('2');
         weich2in2wAB=np.array(weich2in2w(1,SL2)); weich2in2wEF=np.array(weich2in2w(2,SL2));
         weich2in2wGH=np.array(weich2in2w(3,SL2)); weich2in2wIJ=np.array(weich2in2w(4,SL2));
         time.sleep(.15); LXClose(SL2); time.sleep(.15);
@@ -3884,8 +3724,8 @@ def pspreshot():
     if len(not_charging)>0:
         print('** WARNING: The following heads are enabled but NOT charging: '+not_charging) 
 
-    #toggle_TTL_shutter('open'+yes_enabled+'wwxx',display=False);time.sleep(1);#make sure all shutters are open...
-    #toggle_TTL_shutter('close'+not_enabled,display=False)#close shutters that aren't enabled
+    toggle_TTL_shutter('open'+yes_enabled+'wwxx',display=False);time.sleep(1);#make sure all shutters are open...
+    toggle_TTL_shutter('close'+not_enabled,display=False)#close shutters that aren't enabled
     return prechk
     #waveform pre-check? verify shutters are open?
 
@@ -3897,7 +3737,7 @@ def pspostshot(save_flag_q=True):
     pshostcheck()
     psacqx(save_flag=save_flag_q)#took out _noLecroyA
     #psefc();
-    #toggle_TTL_shutter('openall',display=False);#make sure all shutters are open again...
+    toggle_TTL_shutter('openall',display=False);#make sure all shutters are open again...
     print('Resetting bias tracking...')
     resetMBC();
     YFEsetall(True);
@@ -4326,16 +4166,35 @@ def plzchkpv(inpvnam):
 
 def plzchksrv(inpvnam,printall=False):
     pvnam=re.findall('^([^\.]+)',inpvnam);
-    iocnam=re.findall('/reg/d/iocData/(.+)/iocInfo',os.popen('grep_pv '+pvnam[0]).read());
-    hostnam=re.findall('host: \'([^,]+)\', ', os.popen('grep_ioc '+iocnam[0]).read());
-    netstat=os.system('ping -c 1 -w2 '+hostnam[0]+' > /dev/null 2>&1')
-    locstat=re.findall('Location: (.+)\n', os.popen('netconfig search '+hostnam[0]).read());
+    if len(pvnam)>0:
+        iocnam=re.findall('/reg/d/iocData/(.+)/iocInfo',os.popen('grep_pv '+pvnam[0]).read());
+    else:
+        pvnam=['Fail!']
+        iocnam=[]
+    if len(iocnam)>0:
+        hostnam=re.findall('host: \'([^,]+)\', ', os.popen('grep_ioc '+iocnam[0]).read());
+    else:
+        iocnam=['Fail!']
+        hostnam=[]
+    if len(hostnam)>0:
+        netstat=os.system('ping -c 1 -w2 '+hostnam[0]+' > /dev/null 2>&1')
+        locstat=re.findall('Location: (.+)\n', os.popen('netconfig search '+hostnam[0]).read());
+    else:
+        hostnam=['Fail!']
+        netstat=-1
+        locstat=['Fail!']
+
     #msgout='PV: '+'{:<34}'.format(pvnam[0])+'IOC: '+'{:<26}'.format(iocnam[0])+'Host: '+'{:<16}'.format(hostnam[0])+'Host rack:'+'{:<19}'.format(locstat[0])+' Host Ping?: '+str('true ' if netstat==0 else 'false')
     msgout=['{:<34}'.format(pvnam[0]),'{:<26}'.format(iocnam[0]),'{:<19}'.format(hostnam[0]),'{:<25}'.format(locstat[0]),cstr('{:<6}'.format(str('true ' if netstat==0 else 'false')),str('blink,r' if netstat!=0 else ''))]
     return msgout
     
-def pv_checker():
-    qqpl=np.genfromtxt(psfilepath()+'_ps_pvlist.txt',delimiter='\n',dtype=str);pvmsg=[];
+def pv_checker(las='lpl'):
+    if las.lower() == 'lpl':
+        qqpl=np.genfromtxt(psfilepath()+'_ps_pvlist_lpl.txt',delimiter='\n',dtype=str);pvmsg=[];
+    elif las.lower() == 'spl':
+        qqpl=np.genfromtxt(psfilepath()+'_ps_pvlist_spl.txt',delimiter='\n',dtype=str);pvmsg=[];
+    else:
+        print('No such laser!');return
     for eapv in qqpl:
         pvmsg.append(plzchkpv(eapv))
     with multiprocessing.Pool() as pool:
@@ -4350,18 +4209,47 @@ def plzchkcmp(cmpnam):
     msgout=['{:<15}'.format(cmpnam[2])+'{:<28}'.format(cmpnam[0])+cstr('{:<6}'.format(str('true ' if netstat==0 else 'false')),str('blink,r' if netstat!=0 else ''))]
     return msgout
 
+def plzchkcmp2(cmpnam):
+    netstat=os.system('ping -c 1 -w2 '+cmpnam[0]+' > /dev/null 2>&1')
+    msgout=['{:<15}'.format(cmpnam[1])+'{:<28}'.format(cmpnam[0])+cstr('{:<6}'.format(str('true ' if netstat==0 else 'false')),str('blink,r' if netstat!=0 else ''))]
+    return msgout
+
 def MECcompylist():
-    qqip=['172.21.46.147','172.21.46.148','172.21.46.146','172.21.46.60','172.21.46.128','172.21.46.100','172.21.46.120','172.21.46.159','172.21.46.197','172.21.46.142','172.21.46.70','172.21.46.78','172.21.46.71','172.21.46.88','172.21.46.198','172.21.46.213','172.21.46.215','172.21.46.136','172.21.46.218','172.21.46.219','172.21.46.182','172.21.46.144'];
-    qqn=['evo1','evo2','gaia','lecroy1','lecroy2','lecroya','lecroyb','PIMikroMove','spider','spectrometer','tundra','topas','visar1','visar2','vitara','rga','emp','phasicslaptop','phasics1','phasics2','dacage','legend']
+    qqip=['172.21.46.147','172.21.46.148','172.21.46.146','172.21.46.60','172.21.46.128','172.21.46.100', '172.21.46.120','172.21.46.159', '172.21.46.197','172.21.46.142','172.21.46.70','172.21.46.78', '172.21.46.71','172.21.46.88','172.21.46.198','172.21.46.213','172.21.46.215','172.21.46.136', '172.21.46.218','172.21.46.219','172.21.46.182','172.21.46.144'];
+    qqn=['evo1','evo2','gaia','lecroy1','lecroy2','lecroya','lecroyb','PIMikroMove','spider','spectrometer', 'tundra','topas','visar1','visar2','vitara','rga','emp','phasicslaptop','phasics1','phasics2','dacage','legend']
     nmlist=['mec-las-laptop06','mec-las-laptop07','mec-las-laptop05','scope-ics-mectc1-1','scope-ics-meclas-lecroy01','scope-ics-meclas-lecroy-a','scope-ics-meclas-lecroy-b','mec-las-laptop09','mec-las-laptop11','mec-las-laptop01','win-ics-mec-tundra','mec-las-laptop12','win-ics-mec-visar1','win-ics-mec-visar2','mec-las-vitara','mec-rga-laptop','scope-ics-mec-tektronix','mec-phasics-laptop01','win-ics-mec-phasics01','win-ics-mec-phasics02','mec-visar-cage','mec-las-laptop03']
     return list(zip(nmlist,qqip,qqn))
+
+def MECcompylist2():
+    qqn=['mec-laser','mec-monitor','mec-daq','mec-control','mec-console',
+'vitara','legend','evo1','evo2','gaia','topas',
+'PIMikroMove','spider','spectrometer','tundra',
+'lecroy1','lecroy2','lecroya','lecroyb',
+'dacage','visar1','visar2','rga','emp','phasicslaptop','phasics1','phasics2']
+    nmlist=['mec-laser','mec-monitor','mec-daq','mec-control','mec-console',
+'mec-las-vitara','mec-las-laptop03','mec-las-laptop06','mec-las-laptop07','mec-las-laptop05','mec-las-laptop12',
+'mec-las-laptop09','mec-las-laptop11','mec-las-laptop01','win-ics-mec-tundra',
+'scope-ics-mectc1-1','scope-ics-meclas-lecroy01','scope-ics-meclas-lecroy-a','scope-ics-meclas-lecroy-b',
+'mec-visar-cage','win-ics-mec-visar1','win-ics-mec-visar2','mec-rga-laptop','scope-ics-mec-tektronix','mec-phasics-laptop01','win-ics-mec-phasics01','win-ics-mec-phasics02']
+    return list(zip(nmlist,qqn))
 
 def cmp_checker():
     cmpmsg=[];
     #qqpl=[eacmp[0] for eacmp in MECcompylist()]
-    qqpl=MECcompylist()
+    qqpl=MECcompylist2()
     with multiprocessing.Pool() as pool:
         cmpmsg=pool.map(plzchkcmp,qqpl)
+    print('{:<15}'.format('Computer name')+'{:<28}'.format('IP shorthand')+'{:<6}'.format('Ping?'))
+    for ii in range(len(cmpmsg)):
+        print(''.join(cmpmsg[ii]))
+    return
+
+def cmp2_checker():
+    cmpmsg=[];
+    #qqpl=[eacmp[0] for eacmp in MECcompylist()]
+    qqpl=MECcompylist2()
+    with multiprocessing.Pool() as pool:
+        cmpmsg=pool.map(plzchkcmp2,qqpl)
     print('{:<15}'.format('Computer name')+'{:<28}'.format('IP shorthand')+'{:<6}'.format('Ping?'))
     for ii in range(len(cmpmsg)):
         print(''.join(cmpmsg[ii]))
@@ -4480,6 +4368,6 @@ def dotsleep(tSEC):
 
     
 def reloadchk():
-    print('Reload check: 20210924')
+    print('Reload check: 20211012')
 
 
