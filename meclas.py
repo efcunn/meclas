@@ -8,10 +8,11 @@
 # Class list and brief description:
 #    LPL -- routines for LPL pulse shaping (with some aux functions), data acquisition, etc.
 #    efc -- extra function class, holds many useful utilities and shortcuts
-#    LOSC -- LeCroy oscilloscope trace read-out, plotting, saving, etc.
-#    EMeters -- LPL and SPL energy meters
-#    MBC -- LPL bias controller utilities
-#    YFE -- LPL YLF Front End seed laser utilities
+#      HAWG -- Highland AWG control and readout
+#      LOSC -- LeCroy oscilloscope trace read-out, plotting, saving, etc.
+#      EMeters -- LPL and SPL energy meters
+#      MBC -- LPL bias controller utilities
+#      YFE -- LPL YLF Front End seed laser utilities
 #    PFN -- LPL Pulse Forming Network cap bank charging utilities
 #    HWP -- LPL Half Wave Plate motor utilities
 #    **Stage -- Newport and SmarAct stage utilities
@@ -72,11 +73,12 @@ class LPL:
     """
     def LinearWave(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height):
         """
-        Generates linearly-interpolated waveform of length 140 between two input points
+        Generates hex string-formatted linearly-interpolated waveform of 
+        length 140 between two input points
         Primarily intended for use with the Highland AWG, so max value capped at 65535
         
-        LinearWave(1,10000,120,28000) returns a waveform of length 140 with linear
-            ramp from (pixel 1, height 10000) to (pixel 120, height 28000)
+        LinearWave(1,10000,120,28000) returns a string of length 140 (560 chars)
+        with linear ramp from (pixel 1, height 10000) to (pixel 120, height 28000)
         """
         itt=0
         NewString=''
@@ -217,30 +219,6 @@ class LPL:
             elif p1<=itt<=p2:
                 nextval=h1*((h2/float(h1))**((itt-p1)/float(p2-p1)))
                 NewList.append(nextval)
-            else:# itt>p2:
-                NewList.append(offsetQ-offsetQ)
-            itt+=1
-        return np.array(NewList)+offsetQ
-
-    def LogWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,LogBase,offsetQ,arraylenQ):
-        """
-        Generates logrithmically-interpolated waveform using two points (and 0 outside those points)
-        with requested log base, linear offset, and array length
-        
-        Essentially never used but left in the code just in case it finds use later
-        """
-        itt=0
-        h1=Edge1Height-offsetQ
-        h2=Edge2Height-offsetQ
-        p1=int(Edge1PixNo)-1
-        p2=int(Edge2PixNo)-1
-        NewList=[]
-        #
-        while itt<140:
-            if itt<p1:
-                NewList.append(offsetQ-offsetQ)
-            elif p1<=itt<=p2:
-                NewList.append(((h1-h2)/math.log(((p1+.0001)/float(p2)),LogBase))*math.log((LogBase**(((h2*math.log(p1+.0001,LogBase))-(h1*math.log(p2+.0001,LogBase)))/float(h1-h2)))*(itt+.0001),LogBase))
             else:# itt>p2:
                 NewList.append(offsetQ-offsetQ)
             itt+=1
@@ -484,9 +462,10 @@ class LPL:
         try:
             GLOBAL.CurrExp.put(curr_exp)
         except:
-            GLOBAL.CurrExp.put(hutch_name+'xx####')
-        finally:
-            print('Failed to write current experiment to notepad PV!')
+            try:
+                GLOBAL.CurrExp.put(hutch_name+'xx####')
+            except:
+                print('Failed to write current experiment to notepad PV!')
         return curr_exp
     
     def get_curr_run(timeout=15, hutch_name='mec'): 
@@ -708,7 +687,7 @@ class LPL:
         GLOBAL.WVFMYFEGOAL.put(pwtF)
 
         try:
-            SLA=LOSC('A');SLA.Open();SH=HAWG();SH.Open();#replaced w/LeCroyA
+            SLA=LOSC('A');SLA._Open();SH=HAWG();SH._Open();#replaced w/LeCroyA
             ops00=SLA._rch(1);time.sleep(0.1);
 
             meanerr=[]
@@ -770,10 +749,10 @@ class LPL:
                         LoopIsDone=True
                 else:
                     LoopIsDone=True
-            SH.Close();SLA.Close();
+            SH._Close();SLA._Close();
         except:
             print('Failed')
-            SH.Close();SLA.Close();
+            SH._Close();SLA._Close();
         if displayPlot:
             plt.ioff()
 
@@ -926,7 +905,7 @@ class LPL:
                 print('Recipe file '+cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p\' not found.')
                 return
             print('Retrieved recipe: load'+RecipeStrQ)
-            print('Psns: '+str(Psns)+', SSs: '+str(SSs))
+            print('Psns: '+str(list(Psns))+', SSs: '+str([list(SSs_sub) for SSs_sub in SSs]))
             print('YFEcurr:: 2mm: '+'{:5.1f}'.format(YFE02mmCurr)+', 6mm: '+'{:5.1f}'.format(YFE06mmCurr)+', 10mm: '+'{:5.1f}'.format(YFE10mmCurr))
             print('Extra info: '+WvGoal10Hz)
             efc.epl(NewWvfm)
@@ -1014,7 +993,7 @@ class LPL:
             #re-open shutters
             print('Opening all shutters...')
             TTL_shutter.Toggle('openall',display=False);#open all the shutters
-            MBC.resetMBC();
+            MBC.Reset();
             YFE.SetAll(True,displayQ=False);
         except:#used to make sure shutters re-open even in case of error or KeyboardInterrupt
             #reset to single shot on pulse picker
@@ -1091,7 +1070,7 @@ class LPL:
         print('This is ~'+str(round(100*wpen,3))+'% of max energy.')
         Psns=GLOBAL.PSNS.get()#pickle.load(open(psfpQ+'Psns.p','rb'))
         SSs=[GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(Psns))]#pickle.load(open(psfpQ+'SSs.p','rb'))
-        print('Current pulse target is: '+str(Psns)+' ns, '+str(SSs)+' % of max power.')
+        print('Current pulse target is: '+str(list(Psns))+' ns, '+str([list(SSs_sub) for SSs_sub in SSs])+' % of max power.')
         not_charging='';not_enabled='';yes_enabled='';headchanlist=['CD','A','B','E','F','G','H','I','J'];
         temppv1=[GLOBAL.PFNCDEN,GLOBAL.PFNAEN,GLOBAL.PFNBEN,GLOBAL.PFNEEN,GLOBAL.PFNFEN,GLOBAL.PFNGEN,GLOBAL.PFNHEN,GLOBAL.PFNIEN,GLOBAL.PFNJEN]
         temppv2=[GLOBAL.PFNCDCS,GLOBAL.PFNACS,GLOBAL.PFNBCS,GLOBAL.PFNECS,GLOBAL.PFNFCS,GLOBAL.PFNGCS,GLOBAL.PFNHCS,GLOBAL.PFNICS,GLOBAL.PFNJCS]
@@ -1201,7 +1180,7 @@ class LPL:
         ax4,=axs[1,1].plot(xdat[3],ydat[3]); axs[1,1].set_xlabel('IJ'); plt.pause(0.01);
         axss=[ax1,ax2,ax3,ax4]
         try:
-            SLA=LOSC('A');SLA.Open();#changed to LecroyA since repair
+            SLA=LOSC('A');SLA._Open();#changed to LecroyA since repair
             for ii in range(4):
                 if armlist[ii] in armsQ:
                     print('Begin optimizing '+armlist[ii]+'... ',end='',flush=True);
@@ -1241,10 +1220,10 @@ class LPL:
                 else:
                     print('Skipping '+armlist[ii]+'...')
                     pass
-            SLA.Close();time.sleep(.15);#changed to LeCroyA
+            SLA._Close();time.sleep(.15);#changed to LeCroyA
         except:
             print('Failed! Restoring original values and attempting to re-open most-recent shutter... you should verify!')
-            SLA.Close();time.sleep(.15);#changed to LeCroyA
+            SLA._Close();time.sleep(.15);#changed to LeCroyA
             if currentshutter > 0:
                 TTL_shutter.Toggle('open'+armlist[currentshutter],display=False);
             for ii in range(4):
@@ -1407,7 +1386,7 @@ class efc:
         
     def reloadchk():
         """Shorthand sanity check for the current version of the code"""
-        print('Last stamped: 20220201')
+        print('Last stamped: 20220201a')
         
     def reloadpkg(pkgname):
         """Used to be a poor attempt at reloading packages while under development; much easier to use %run IPython commands instead"""
@@ -1707,8 +1686,9 @@ class HAWG:
         self._HighlandSocket=None
         self._HIGHLAND_SLAVE_ADDRESS=0 #arbitrary, I think    
 
-    def Open(self):
-        """Takes care of opening the socket to the Highland; if called explicitly like this, it MUST be followed by a Close() statement or else you'll block the socket and need to power cycle the unit"""
+    def _Open(self):
+        """Takes care of opening the socket to the Highland; if called explicitly like this, it MUST be followed by a Close()
+        statement or else you'll block the socket and need to power cycle the unit"""
         if not self._HighlandSocket:
             try:
                 self._HighlandSocket=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1720,7 +1700,7 @@ class HAWG:
         else:
             print('Socket may already be open!')
 
-    def Close(self):
+    def _Close(self):
         """Takes care of closing the socket to the Highland"""
         try:
             self._HighlandSocket.close()
@@ -1838,11 +1818,11 @@ class HAWG:
         """A function wrapper that allows one to call each Highland command directly without having to worry about opening/closing sockets;
         if issuing one-off commands that don't require high-frequency consistent execution, this is sufficient"""
         try:
-            self.Open();time.sleep(0.15);
+            self._Open();time.sleep(0.15);
             HDataQList=FuncQ(**kwargs);time.sleep(0.15);
-            self.Close();time.sleep(0.15);
+            self._Close();time.sleep(0.15);
         except:
-            self.Close();time.sleep(0.15);
+            self._Close();time.sleep(0.15);
         return HDataQList
 
     def _ReadStatus(self):
@@ -2438,25 +2418,6 @@ class HAWG:
             itt+=1
         return NewString
     
-    def FidOn(self):
-        """Shortcut function for turning on the Highland's fiducial impulse used for proper timing of the oscilloscope delay"""
-        try:
-            self.WriteFiducialImpulseSettings(20000,45000);
-        except:
-            print('Error!')
-            return False
-        return
-
-    def FidOff(self):
-        """Shortcut function for turning off the Highland's fiducial impulse"""
-        try:
-            self.WriteFiducialImpulseSettings(0,0);
-        except:
-            print('Error!')
-            return False
-        return
-
-
 # #FIX THIS!!!
 #     def ___FETsurvey(HSQ,LS1Q):
 #         #HSQ=HOpen()
@@ -2678,11 +2639,29 @@ class HAWG:
 #             return TQP[-1]
 # =============================================================================
     
-    def HParamSnapshot():
-        """Once revived again, function will serve to save and preserve the various settings of the Highland"""
-        pass
+# =============================================================================
+#     def HParamSnapshot():
+#         """Once revived again, function will serve to save and preserve the various settings of the Highland"""
+#         pass
+# =============================================================================
     
+    def FidOn(self):
+        """Shortcut function for turning on the Highland's fiducial impulse used for proper timing of the oscilloscope delay"""
+        try:
+            self.WriteFiducialImpulseSettings(20000,45000);
+        except:
+            print('Error!')
+            return False
+        return
 
+    def FidOff(self):
+        """Shortcut function for turning off the Highland's fiducial impulse"""
+        try:
+            self.WriteFiducialImpulseSettings(0,0);
+        except:
+            print('Error!')
+            return False
+        return
 
     
 
@@ -2713,7 +2692,7 @@ class LOSC:
         self._LSock = None
         self._port = 1861
 
-    def Open(self):
+    def _Open(self):
         """Takes care of opening the socket to the specified LeCroy; if called explicitly like this, it MUST be followed by a Close() statement or else you'll block the socket and need to locally disable/enable its networking card or power cycle the unit"""
         if not self._LSock:
             try:
@@ -2725,7 +2704,7 @@ class LOSC:
         else:
             print('Socket may already be open!')
 
-    def Close(self):
+    def _Close(self):
         """Takes care of closing the socket to the specified LeCroy"""
         try:
             self._LSock.close()
@@ -2859,11 +2838,11 @@ class LOSC:
         """A function wrapper that allows one to call each LeCroy command directly without having to worry about opening/closing sockets;
         if issuing one-off commands that don't require high-frequency consistent execution, this is sufficient"""
         try:
-            self.Open();time.sleep(0.15);
+            self._Open();time.sleep(0.15);
             LData=FuncQ(**kwargs);time.sleep(0.15);
-            self.Close();time.sleep(0.15);
+            self._Close();time.sleep(0.15);
         except:
-            self.Close();time.sleep(0.15);
+            self._Close();time.sleep(0.15);
             LData=False
         return LData
 
@@ -3239,7 +3218,7 @@ class EMeters:
         print(strlist[-1]);strlist.append('\n');
         Psns=GLOBAL.PSNS.get()#pickle.load(open(psfpQ+'Psns.p','rb'))
         SSs=[GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(Psns))]#pickle.load(open(psfpQ+'SSs.p','rb'))
-        strlist.append('Current pulse target is: '+str(Psns)+' ns, '+str(SSs)+' % of max power.')
+        strlist.append('Current pulse target is: '+str(list(Psns))+' ns, '+str([list(SSs_sub) for SSs_sub in SSs])+' % of max power.')
         print(strlist[-1]);strlist.append('\n');
         strlist.append('YFE: '+'{:5.1f}'.format(1000*round(en1wYFE,4))+'mJ, 1"@1w: '+'{:5.2f}'.format(en1w1in)+'J')
         print(strlist[-1]);strlist.append('\n');
@@ -3351,17 +3330,17 @@ class EMeters:
 #        for jj in range(len(pvlist2)):
 #            temppv1=EpicsSignal(str(pvlist2[jj]+'.DESC'));temppv2=EpicsSignal(pvlist2[jj]);
 #            temppv1.put(desclist2[jj]);temppv2.put(valulist2[jj]);
-        return
+        print('Add in SPL meters later')
 
 
 
 
                   
 class MBC:
-    def MBCmodecheck():
+    def ModeCheck():
         return GLOBAL.MBCmode.get()
 
-    def isMBCsafe():#re-write checks as individual functions
+    def IsSafe():#re-write checks as individual functions
         status = True
         print('Checking MBC status...')
         if GLOBAL.MBCpwr.get() != 1:
@@ -3394,7 +3373,7 @@ class MBC:
         else:
             return False
 
-    def resetMBC():
+    def Reset():
         YFE.SetAll(False);
         #add KeyboardInterrupt?
         print('Begin resetting the MBC...')
@@ -3419,7 +3398,7 @@ class MBC:
             print('MBC is out of range! Aborting and power-cycling...');
             GLOBAL.MBCbias.put((np.round(time.time()*1000)%2)*9000*np.sign(inibias));time.sleep(1);
             GLOBAL.MBCpwr.put(2);time.sleep(2);
-            MBC.resetMBC();return
+            MBC.Reset();return
         biaschk=[]
         print('Checking the initial MBC bias level...',end='',flush=True)
         for ii in range(3):
@@ -3428,11 +3407,11 @@ class MBC:
         print('*')
         waitloop=True;loopcnt=0;
         biaschklog=[]
-        biaschklog.append(np.abs(np.diff(biaschk)))
+        biaschklog.append(np.sum(np.abs(np.diff(biaschk))))
         while waitloop:
             newchk=np.abs(np.diff(biaschk))
-            biaschklog.append(newchk)
-            if np.sum(np.abs(np.diff(biaschk))) > 3:
+            biaschklog.append(np.sum(newchk))
+            if np.sum(newchk) > 3:
                 print('MBC bias level unstable... '+str(biaschk),end='',flush=True)
                 biaschk=[]
                 for ii in range(3):
@@ -3440,11 +3419,11 @@ class MBC:
                     time.sleep(1);print('..',end='',flush=True);time.sleep(1);print('..',end='',flush=True);
                 print('')
                 loopcnt+=1
-                if (loopcnt >= 15) and (biaschklog[-1] > biaschklog[-1]):
+                if ((loopcnt >= 10) and (biaschklog[-1] > biaschklog[-2] + 1)) or (loopcnt >= 20):
                     print('MBC bias level stability fail. Aborting and power-cycling...')
                     GLOBAL.MBCbias.put((np.round(time.time()*1000)%2)*9000*np.sign(biaschk[-1]));time.sleep(1);
                     GLOBAL.MBCpwr.put(2);time.sleep(2);
-                    MBC.resetMBC();return
+                    MBC.Reset();return
             else:
                 print('MBC bias level stabilized... '+str(biaschk))
                 waitloop = False
@@ -3477,7 +3456,7 @@ class YFE:
 
     @classmethod
     def On(cls):
-        if YFE.OnCheck(dsplay=False):
+        if YFE.OnCheck(display=False):
             print('YFE emission already enabled.');return
         if GLOBAL.LPLPCpwr.get() != 1:
             GLOBAL.LPLPCpwr.put(1)
@@ -3633,7 +3612,7 @@ class YFE:
         cls.Get(display=displayQ);
         return
 
-    def YFEtrace():#fix this
+    def Trace():
         try:
             LOSC('a').pch(1)
         except:
@@ -3791,7 +3770,7 @@ class HWP:
             print('Warning! The YFE doesn\'t appear to be turned up! ');YFE.Get(display=True);
         else:
             print('(YFE current seems OK...)')
-        if MBC.MBCmodecheck() != 0:
+        if MBC.ModeCheck() != 0:
             print('(Warning! The MBC doesn\'t appear to be in AUTO mode!')
         else:
             print('(MBC mode seems OK...)')
@@ -3802,7 +3781,18 @@ class HWP:
             return
         else:
             print('OK, I hope you know what you\'re doing!')
+        HWPpvlist=[GLOBAL.HWPAB, GLOBAL.HWPEF, GLOBAL.HWPGH, GLOBAL.HWPIJ];
         HWP.On('all',set_T=1)
+        currHWPrbv=np.sum([np.abs(HWP_rbv.get()) for HWP_rbv in HWPpvlist])
+        if  currHWPrbv > 10:
+            hwploopiter=0
+            while currHWPrbv > 1:
+                time.sleep(1)
+                currHWPrbv=np.sum([np.abs(HWP_rbv.get()) for HWP_rbv in HWPpvlist])
+                hwploopiter+=1
+                if hwploopiter > 10:
+                    print('HWP settings do not seem to be settling at 0deg! Please try again later!')
+                    return False
         armlist=['AB','EF','GH','IJ']
         #YFEoff();YFEon();
         GLOBAL.MBCmode.put(1)#set MAN mode on MBC
@@ -3815,7 +3805,7 @@ class HWP:
         except:
             print('Failed to read old waveform/load new waveform!')
             return
-        HWPpvlist=[GLOBAL.HWPAB, GLOBAL.HWPEF, GLOBAL.HWPGH, GLOBAL.HWPIJ];
+
         print('Closing all shutters...')
         TTL_shutter.Toggle('closeall',display=False);#close all the shutters
         time.sleep(4)
@@ -3837,23 +3827,23 @@ class HWP:
             return
         startposlist=[HWPrbv.get() for HWPrbv in HWPpvlist];
         newposlist=startposlist[:]
+        stepQ=1.0;rangeQ=20.0;
         for ii in range(4):
             if armlist[ii] in armsQ:#only prep the stage if it's going to be used
-                HWPpvlist[ii].put(startposlist[ii]+(-20.0+4.0*0))
+                HWPpvlist[ii].put(startposlist[ii]+(-rangeQ+stepQ*0))
         currentshutter=0;#trying to re-open a shutter in case of failure...
         #set up all the plotting stuff
         plt.ion()
         fig,axs=plt.subplots(2,2,gridspec_kw={'hspace':0.4,'wspace':0.3})
-        xdat=[[startposlist[ii]+(-20.0+4.0*(jj)) for jj in range(11)] for ii in range(4)]
+        xdat=[[startposlist[ii]+(-rangeQ+stepQ*(jj)) for jj in range(int(1+(2*rangeQ/stepQ)))] for ii in range(4)]
         ydat=[[0]*11 for ii in range(4)]
         ax1,=axs[0,0].plot(xdat[0],ydat[0]); axs[0,0].set_xlabel('AB'); plt.pause(0.01);
         ax2,=axs[0,1].plot(xdat[1],ydat[1]); axs[0,1].set_xlabel('EF'); plt.pause(0.01);
         ax3,=axs[1,0].plot(xdat[2],ydat[2]); axs[1,0].set_xlabel('GH'); plt.pause(0.01);
         ax4,=axs[1,1].plot(xdat[3],ydat[3]); axs[1,1].set_xlabel('IJ'); plt.pause(0.01);
         axss=[ax1,ax2,ax3,ax4]
-        stepQ=1.0;rangeQ=20.0;
         try:
-            SLA=LOSC('A');SLA.Open();#changed to LecroyA since repair
+            SLA=LOSC('A');SLA._Open();#changed to LecroyA since repair
             for ii in range(4):
                 if armlist[ii] in armsQ:
                     print('Begin optimizing '+armlist[ii]+'... ',end='',flush=True);
@@ -3893,10 +3883,10 @@ class HWP:
                 else:
                     print('Skipping '+armlist[ii]+'...')
                     pass
-            SLA.Close();time.sleep(.15);#changed to LeCroyA
+            SLA._Close();time.sleep(.15);#changed to LeCroyA
         except:
             print('Failed! Restoring original values and attempting to re-open most-recent shutter... you should verify!')
-            SLA.Close();time.sleep(.15);#changed to LeCroyA
+            SLA._Close();time.sleep(.15);#changed to LeCroyA
             if currentshutter > 0:
                 TTL_shutter.Toggle('open'+armlist[currentshutter],display=False);
             for ii in range(4):
@@ -3912,7 +3902,7 @@ class HWP:
         HWPlog.append([datestamp,[newposlist[ii] for ii in range(4)]])
         efc.pickledump2(HWPlog,LPL.psfilepath()+'HWP_opt_log.p')
         TTL_shutter.Toggle('openall',display=False);#open all the shutters
-        MBC.resetMBC();YFE.SetAll(True);#reset bias...
+        MBC.Reset();YFE.SetAll(True);#reset bias...
         plt.ioff()
         motnamelist=[GLOBAL.HWPABoff, GLOBAL.HWPEFoff, GLOBAL.HWPGHoff, GLOBAL.HWPIJoff]#.OFF
         #add adjustment to offset automatically....
@@ -4742,7 +4732,7 @@ class GLOBAL:
     EcoeffRE1 = 1.64e5
     EcoeffRE0 = 1.03156061e-01 
     EcoeffTO1 = 3.48e7
-    EcoeffTO1 = - 1.63e1 
+    EcoeffTO0 = - 1.63e1 
     EcoeffM11 = 1.81e5
     EcoeffM10 = - 0.301
     EcoeffM21 = 1.05e5
