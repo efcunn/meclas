@@ -1,3 +1,40 @@
+# =============================================================================
+#              meclas.py
+# Package for running various laser utilities in MEC
+# Apologies on behalf of: Eric Cunningham (and others)
+#
+# To load: use import meclas or use IPython's %run magic function
+#
+# Class list and brief description:
+#    LPL -- routines for LPL pulse shaping (with some aux functions), data acquisition, etc.
+#    efc -- extra function class, holds many useful utilities and shortcuts
+#    LOSC -- LeCroy oscilloscope trace read-out, plotting, saving, etc.
+#    EMeters -- LPL and SPL energy meters
+#    MBC -- LPL bias controller utilities
+#    YFE -- LPL YLF Front End seed laser utilities
+#    PFN -- LPL Pulse Forming Network cap bank charging utilities
+#    HWP -- LPL Half Wave Plate motor utilities
+#    **Stage -- Newport and SmarAct stage utilities
+#    **Timing -- ns and fs timing utilities
+#    CAM -- functions for GigE camera acquisition, configuration, etc.
+#    TTL_shutter -- Beckhoff utilities for controlling/tracking Thorlabs TTL shutters
+#    DG645 -- functions for DG645 operation, parameter backup and restoration, etc.
+#    **SPL -- routines for SPL alignment, etc. 
+#    UNIBLITZ -- UNIBLITZ shutter utilities for setting SPL trigger modes, etc.
+#    **Spectrometer -- functions for Qmini and Ocean Optics USB4000 spectrometers
+#    **VISAR -- routines for VISAR timing, streak camera configuration, laser control, etc.
+#    CtrlSys -- routines for checking responsivity of PVs, hosts, hutch computers, etc.
+#    **SCALLOPS -- routines for LPL pulse shaping simulations
+#    **LabEnv -- functions for interfacing with lab environment monitors
+#    **RIS -- functions for monitoring RIS-related systems and PVs
+#    **PDU -- functions for operating power distribution units
+#    GLOBAL -- home for global constants, PV definitions, etc.
+#    
+#    ** = FUTURE DEVELOPMENT
+# =============================================================================
+
+
+### load packages
 import socket
 import time
 import math
@@ -15,23 +52,32 @@ import os.path
 import sys
 from ophyd.signal import EpicsSignal
 import elog
-import pcdsdaq.ext_scripts ##find where used -- get_run_number and experiment?
+import pcdsdaq.ext_scripts 
 import glob
 #import pandas as pd
 import stat
 import getpass
 import multiprocessing
-import threading
+#import threading
 import termios, tty
 import importlib.util
 import select
 import regex as re
 
 
+
 class LPL:
-    """Stores functions related to pulse shaping and the LPL"""
+    """
+    Stores functions related to LPL pulse shaping, data acquisition, etc.
+    """
     def LinearWave(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height):
-        """Generates linearly-interpolated waveform of length 140 between two input points"""
+        """
+        Generates linearly-interpolated waveform of length 140 between two input points
+        Primarily intended for use with the Highland AWG, so max value capped at 65535
+        
+        LinearWave(1,10000,120,28000) returns a waveform of length 140 with linear
+            ramp from (pixel 1, height 10000) to (pixel 120, height 28000)
+        """
         itt=0
         NewString=''
         if Edge1Height>65535:
@@ -92,6 +138,11 @@ class LPL:
         """
         Generates linearly-interpolated waveform between two points (and 0 outside those points)
         with requested linear offset and array length
+        
+        Useful in part for specifying YFE waveforms at 10Hz, generating "goal" waveforms, etc.
+        
+        LinearWave2(500,.1,1025,.8,0,5002) returns an array of length 5002 with a linear ramp
+            from (pixel 500, height 0.1) to (pixel 1025, height 0.8) with no vertical offset
         """
         itt=0
         h1=Edge1Height-offsetQ
@@ -115,6 +166,12 @@ class LPL:
         """
         Generates parabolically-interpolated waveform using three points (and 0 outside those points)
         with requested linear offset and array length
+        
+        Only rarely used for specifying YFE waveforms at 10Hz, generating "goal" waveforms, etc.
+        
+        ParabolicWave2(500,.1,800,.15,1025,.8,0,5002) returns an array of length 5002 with a
+            parabola fit to (pixel 500, height 0.1), (pixel 800, height 0.15), and 
+            (pixel 1025, height 0.8) with no vertical offset
         """
         itt=0
         h1=Edge1Height-offsetQ
@@ -140,6 +197,12 @@ class LPL:
         """
         Generates exponentially-interpolated waveform using two points (and 0 outside those points)
         with requested linear offset and array length
+        
+        Most-used function for specifying YFE waveforms at 10Hz (exponential seed waveforms
+            become ~linear after laser amplification)
+
+        ExponentialWave2(500,.1,1025,.8,0,5002) returns an array of length 5002 with an exponential ramp
+            from (pixel 500, height 0.1) to (pixel 1025, height 0.8) with no vertical offset
         """
         itt=0
         h1=Edge1Height-offsetQ
@@ -163,6 +226,8 @@ class LPL:
         """
         Generates logrithmically-interpolated waveform using two points (and 0 outside those points)
         with requested log base, linear offset, and array length
+        
+        Essentially never used but left in the code just in case it finds use later
         """
         itt=0
         h1=Edge1Height-offsetQ
@@ -232,7 +297,7 @@ class LPL:
         NewInputPulseShape=np.clip([abs((StepQ*(G[ii]-M[ii]))+I[ii])*math.ceil(G[ii]) for ii in range(len(G))],0,1)#math.ceil(G) is a mask that disallows values outside the goal
         return NewInputPulseShape
 
-    def FixEdges(WavF,DurationListQ,StartStopListQ):
+    def FixEdges(WavF,DurationListQ,StartStopListQ,CorrFactorFront=1.02,CorrFactorBack=1.02,PtNumFront=1,PtNumBack=2):
         """
         Applies fixed relationship between points close to waveform discontinuities (e.g. at beginning, end, step, etc.)
         specified by Duration and Start/Stop lists
@@ -240,8 +305,8 @@ class LPL:
         FirstPix=0#was 50
         DurListQ=np.cumsum([0]+DurationListQ)
         fWavF=WavF[:]
-        fWavF[FirstPix+1]=fWavF[FirstPix+2]*1.05
-        fWavF[FirstPix]=fWavF[FirstPix+1]*1.1
+        for ii in range(PtNumFront):
+            fWavF[FirstPix+(PtNumFront-ii-1)]=fWavF[FirstPix+(PtNumFront-ii)]*CorrFactorFront
         DisconCount=0
         ContCount=0
         if len(StartStopListQ)>1:
@@ -254,8 +319,8 @@ class LPL:
                     ContCount+=1
         #fWavF[FirstPix]=fWavF[FirstPix+1]*1.1
         #try fixing last THREE pixels to help back edge
-        fWavF[FirstPix+int(4*DurListQ[-1])-2-ContCount]=fWavF[FirstPix+int(4*DurListQ[-1])-3-ContCount]*1.05
-        fWavF[FirstPix+int(4*DurListQ[-1])-1-ContCount]=fWavF[FirstPix+int(4*DurListQ[-1])-2-ContCount]*1.05
+        for ii in range(PtNumBack):
+            fWavF[FirstPix+int(4*DurListQ[-1])-(PtNumBack-1-ii)-ContCount]=fWavF[FirstPix+int(4*DurListQ[-1])-(PtNumBack-ii)-ContCount]*CorrFactorBack
         for ii in range(len(fWavF)):
             if np.mean(fWavF) < 1:
                 if fWavF[ii] > 1:
@@ -1342,7 +1407,7 @@ class efc:
         
     def reloadchk():
         """Shorthand sanity check for the current version of the code"""
-        print('Last stamped: 20220122')
+        print('Last stamped: 20220201')
         
     def reloadpkg(pkgname):
         """Used to be a poor attempt at reloading packages while under development; much easier to use %run IPython commands instead"""
@@ -1630,6 +1695,8 @@ class efc:
         for x in range(10):
             print('{:>5}'.format(x*10**int(5*np.random.rand())), end='\r');time.sleep(1);
             print()
+
+
 
 
 
@@ -2598,11 +2665,6 @@ class HAWG:
 #         time.sleep(.15) 
 #         return
 # =============================================================================
-    
-    def HParamSnapshot():
-        """Once revived again, function will serve to save and preserve the various settings of the Highland"""
-        pass
-    
 # =============================================================================
 # #FIX THIS!!!
 #     def findfid(TraceInQ): 
@@ -2615,9 +2677,14 @@ class HAWG:
 #             print('check your answer...')
 #             return TQP[-1]
 # =============================================================================
-
+    
+    def HParamSnapshot():
+        """Once revived again, function will serve to save and preserve the various settings of the Highland"""
+        pass
     
 
+
+    
 
 class LOSC:
     """Class containing all the necessary functions for running the LeCroy oscilloscopes
@@ -3085,13 +3152,6 @@ class LOSC:
 
 
 
-
-
-
-
-
-
-
 class EMeters:
     """Class containing readout functions for energy meters on all MEC laser systems"""
     def LPLInChamber(printDisplay=False):
@@ -3107,7 +3167,10 @@ class EMeters:
         eef=GLOBAL.EGLPL2in2wEF.get()
         egh=GLOBAL.EGLPL2in2wGH.get()
         eij=GLOBAL.EGLPL2in2wIJ.get()
-        EAB,EEF,EGH,EIJ=round(1.05*1.17*eab/.00760/1.006/1.0412/1.0799/1.0478,4),round(1.13*.860*eef/.00686/1.006/.9634/0.8410/0.9517,4),round(.914*.897*egh/.00655/1.015/.9692/0.883/0.9650,4),round(1.07*1.25*eij/.00608/1.015/1.1232/1.075/1.0863,4)
+        EAB=round(GLOBAL.Ecoeff2in2wAB.get()*eab,4)
+        EEF=round(GLOBAL.Ecoeff2in2wEF.get()*eef,4)
+        EGH=round(GLOBAL.Ecoeff2in2wGH.get()*egh,4)
+        EIJ=round(GLOBAL.Ecoeff2in2wIJ.get()*eij,4)
         guessarray=[[EAB,EEF,EGH,EIJ],round(EAB+EEF,4),round(EGH+EIJ,4),round(EAB+EEF+EGH+EIJ,4)]
         tempglobarr=[GLOBAL.EAB2w,GLOBAL.EEF2w,GLOBAL.EGH2w,GLOBAL.EIJ2w]
         for ii in range(4):
@@ -3127,7 +3190,7 @@ class EMeters:
     def EG1wYFE1in():
         eyfe=GLOBAL.EGLPLYFE.get()
         e1in=GLOBAL.EGLPL1in1w.get()
-        EYFE,E1IN=eyfe*0.3285-0.00039,e1in*0.5971#was 0.3578
+        EYFE,E1IN=GLOBAL.EcoeffYFE.get()*eyfe,GLOBAL.Ecoeff1in1wCD.get()*e1in#was 0.3578
         guessarray=[round(EYFE,4),round(E1IN,4)]
         tempglobarr=[GLOBAL.EYFE,GLOBAL.ECD1w]
         for ii in range(2):
@@ -3142,7 +3205,10 @@ class EMeters:
         eef=GLOBAL.EGLPL2in1wEF.get()
         egh=GLOBAL.EGLPL2in1wGH.get()
         eij=GLOBAL.EGLPL2in1wIJ.get()
-        EAB,EEF,EGH,EIJ=round(eab*224.0,4),round(eef*177.5,4),round(egh*307.4*0.849,4),round(eij*113.2,4)
+        EAB=round(GLOBAL.Ecoeff2in1wAB.get()*eab,4)
+        EEF=round(GLOBAL.Ecoeff2in1wEF.get()*eef,4)
+        EGH=round(GLOBAL.Ecoeff2in1wGH.get()*egh,4)
+        EIJ=round(GLOBAL.Ecoeff2in1wIJ.get()*eij,4)
         guessarray=[[EAB,EEF,EGH,EIJ],round(EAB+EEF,4),round(EGH+EIJ,4),round(EAB+EEF+EGH+EIJ,4)]
         tempglobarr=[GLOBAL.EAB1w,GLOBAL.EEF1w,GLOBAL.EGH1w,GLOBAL.EIJ1w]
         for ii in range(4):
@@ -3208,10 +3274,10 @@ class EMeters:
         toen=GLOBAL.EGSPLTO.get() 
         m1en=GLOBAL.EGSPLM1.get() 
         m2en=GLOBAL.EGSPLM2.get() 
-        regenen=1.64e5*reen + 1.03156061e-01 
-        topasen=3.48e7*toen - 1.63e1 
-        mpa1en=1.81e5*m1en - 0.301 #1.76e5, -2.22e0
-        mpa2en=1.05e5*m2en - 1.39e-1 
+        regenen=GLOBAL.EcoeffRE1*reen + GLOBAL.EcoeffRE0
+        topasen=GLOBAL.EcoeffTO1*toen + GLOBAL.EcoeffTO0
+        mpa1en=GLOBAL.EcoeffM11*m1en + GLOBAL.EcoeffM10 #1.76e5, -2.22e0
+        mpa2en=GLOBAL.EcoeffM21*m2en + GLOBAL.EcoeffM20
         return np.round([regenen,topasen,mpa1en,mpa2en],2)
 
                   
@@ -3242,13 +3308,14 @@ class EMeters:
                 temppv.put(valx)       
 
     def E_coeff_refresh():
-        pvlist=['MEC:LAS:FLOAT:'+str(ii) for ii in range(31,41)];
-        inddesclist=['YFE','CD1w','AB1w','EF1w','GH1w','IJ1w','AB2w','EF2w','GH2w','IJ2w']
-        desclist=['E_coeff_'+inddesc for inddesc in inddesclist]
-        valulist=[.3578,0.5971,224.0,177.5,307.4*0.849,113.2,111.0*1.17,187.9*0.860,182.1*0.897,123.5*1.25]
-        for jj in range(len(pvlist)):
-            temppv1=EpicsSignal(str(pvlist[jj]+'.DESC'));temppv2=EpicsSignal(pvlist[jj]);
-            temppv1.put(desclist[jj]);temppv2.put(valulist[jj]);
+        GLOBAL.notepadPVreset()
+        #pvlist=['MEC:LAS:FLOAT:'+str(ii) for ii in range(31,41)];
+        #inddesclist=['YFE','CD1w','AB1w','EF1w','GH1w','IJ1w','AB2w','EF2w','GH2w','IJ2w']
+        #desclist=['E_coeff_'+inddesc for inddesc in inddesclist]
+        #valulist=[.3578,0.5971,224.0,177.5,307.4*0.849,113.2,111.0*1.17,187.9*0.860,182.1*0.897,123.5*1.25]
+        #for jj in range(len(pvlist)):
+        #    temppv1=EpicsSignal(str(pvlist[jj]+'.DESC'));temppv2=EpicsSignal(pvlist[jj]);
+        #    temppv1.put(desclist[jj]);temppv2.put(valulist[jj]);
 
                   
     def E_synth_refresh():
@@ -3281,9 +3348,12 @@ class EMeters:
         for jj in range(len(pvlist)):
             temppv1=EpicsSignal(str(pvlist[jj]+'.DESC'));temppv2=EpicsSignal(pvlist[jj]);
             temppv1.put(desclist[jj]);temppv2.put(valulist[jj]);
-        #for jj in range(len(pvlist2)):
-        #    temppv1=EpicsSignal(str(pvlist2[jj]+'.DESC'));temppv2=EpicsSignal(pvlist2[jj]);
-        #    temppv1.put(desclist2[jj]);temppv2.put(valulist2[jj]);
+#        for jj in range(len(pvlist2)):
+#            temppv1=EpicsSignal(str(pvlist2[jj]+'.DESC'));temppv2=EpicsSignal(pvlist2[jj]);
+#            temppv1.put(desclist2[jj]);temppv2.put(valulist2[jj]);
+        return
+
+
 
 
                   
@@ -3324,8 +3394,9 @@ class MBC:
         else:
             return False
 
-    def resetMBC():#includes YFEOff() at beginning, but must explicitly ask later to turn YFE back on w/ YFEOn() or YFEsetall(True)
-        YFE.SetAll(False);#pvMBCmode.put(0);time.sleep(1);#make sure it's in AUTO not MAN when it wakes up... saves time
+    def resetMBC():
+        YFE.SetAll(False);
+        #add KeyboardInterrupt?
         print('Begin resetting the MBC...')
         if GLOBAL.MBCpwr.get() != 1:
             print('Powering on MBC, starting scan...',end='',flush=True)
@@ -3356,7 +3427,11 @@ class MBC:
             time.sleep(1);print('..',end='',flush=True);time.sleep(1);print('..',end='',flush=True);
         print('*')
         waitloop=True;loopcnt=0;
+        biaschklog=[]
+        biaschklog.append(np.abs(np.diff(biaschk)))
         while waitloop:
+            newchk=np.abs(np.diff(biaschk))
+            biaschklog.append(newchk)
             if np.sum(np.abs(np.diff(biaschk))) > 3:
                 print('MBC bias level unstable... '+str(biaschk),end='',flush=True)
                 biaschk=[]
@@ -3365,7 +3440,7 @@ class MBC:
                     time.sleep(1);print('..',end='',flush=True);time.sleep(1);print('..',end='',flush=True);
                 print('')
                 loopcnt+=1
-                if loopcnt >= 15:
+                if (loopcnt >= 15) and (biaschklog[-1] > biaschklog[-1]):
                     print('MBC bias level stability fail. Aborting and power-cycling...')
                     GLOBAL.MBCbias.put((np.round(time.time()*1000)%2)*9000*np.sign(biaschk[-1]));time.sleep(1);
                     GLOBAL.MBCpwr.put(2);time.sleep(2);
@@ -3378,9 +3453,6 @@ class MBC:
 
 
 
-
-
-                  
 
 class YFE:
     """Class for organizing functions associated with the YLF Front End (YFE) laser system"""
@@ -3567,6 +3639,7 @@ class YFE:
         except:
             print('Failed to display trace')
             return False
+
 
 
 
@@ -3847,6 +3920,10 @@ class HWP:
             tempval=temppv.get();
             temppv.put(tempval-newposlist[ii]);
 
+
+
+
+
 class Stage:
     def NewportInitRefAll():
         ipvlist=[GLOBAL.XPS1IALL, GLOBAL.XPS2IALL, GLOBAL.XPS3IALL, GLOBAL.XPS4IALL]
@@ -3869,6 +3946,9 @@ class Stage:
     def Restore():
         pass
                   
+
+
+
                   
 class Timing:
     def fstiming():
@@ -3883,6 +3963,9 @@ class Timing:
     def Vitara():
         pass
                   
+
+
+
 
 class CAM:
     @classmethod
@@ -4066,6 +4149,7 @@ class CAM:
         #default MisalignmentTolerance=-1 indicates not to change anything, it was set up previously
         #default RefXhairXYsize=[-1,-1] indicates not to change anything, it was set up previously
         PVhead=cls.CAMname(CAMreq)
+        efc.wPV('{}:Acquire'.format(PVhead),0)#hopefully prevents IOC crashes, per TylerJ
         ArraySize=[efc.rPV('{}:IMAGE{}:ArraySize0_RBV'.format(PVhead,ImageNo)),efc.rPV('{}:IMAGE{}:ArraySize1_RBV'.format(PVhead,ImageNo))]
         NameList=['Ref X-hair','DynCentroid','CAMname','Instructions','TimeStamp','Stats','Counts',
                   'AlignmentOK'+str(str(MisalignmentTolerance).zfill(3) if MisalignmentTolerance > 0 else efc.rPV('{}:IMAGE{}:Cross4:Name'.format(PVhead,ImageNo))[-3:])]
@@ -4184,6 +4268,31 @@ class CAM:
                 except:
                     print('Error setting up {}!'.format(NameList[ii]))
 
+# =============================================================================
+#     def GigE_toggle_trigger(ENBINHReq, GigEreq='all', RepRateReq=5):
+#         """
+#         INHall, ENBall
+#         5, 0
+#         """
+#         #check to see if UNI_EVR output is enabled or disabled before changing trigger timing of UNI_EVR
+#         #may also check for 
+#         # individually set free run or fixed rate or ext trig in? use CAMconfig for this?
+#         if UNI_TRIG_IN_EVR in [44,45,46]:
+#             EFdelay=0e-3
+#         elif UNI_TRIG_IN_EVR in [177]:
+#             EFdelay=100e-3
+#         else:
+#             print('Unanticipated UNI_TRIG_IN_EVR case!')
+#             
+#         if command == 'INH':
+#             DG8_EF_Polarity = 'POS'
+#         elif command == 'ENA':
+#             DG_8_EF_Polarity = 'NEG'
+#         else:
+#             print('Unanticipated command case!')
+#         return
+# =============================================================================
+
     @classmethod
     def CAMconfigCurrent(cls):
         cls.CAMconfig(CAMreq='Legend',RefXhairXY=[359,251],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[100,100],LIVE=False,InstructionStr='DO NOT tune to xhair!')
@@ -4197,28 +4306,9 @@ class CAM:
         cls.CAMconfig(CAMreq='CompOutFF',RefXhairXY=[292,300],MisalignmentTolerance=25,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use XPS2 Mid (and Input) Mirror to align to xhair!')
         cls.CAMconfig(CAMreq='CompOutNF',RefXhairXY=[364,277],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use XPS2 Input(/Mid) Mirror to align to xhair!')
 
-    def GigE_toggle_trigger(ENBINHReq, GigEreq='all', RepRateReq=5):
-        """
-        INHall, ENBall
-        5, 0
-        """
-        #check to see if UNI_EVR output is enabled or disabled before changing trigger timing of UNI_EVR
-        #may also check for 
-        # individually set free run or fixed rate or ext trig in? use CAMconfig for this?
-        if UNI_TRIG_IN_EVR in [44,45,46]:
-            EFdelay=0e-3
-        elif UNI_TRIG_IN_EVR in [177]:
-            EFdelay=100e-3
-        else:
-            print('Unanticipated UNI_TRIG_IN_EVR case!')
-            
-        if command == 'INH':
-            DG8_EF_Polarity = 'POS'
-        elif command == 'ENA':
-            DG_8_EF_Polarity = 'NEG'
-        else:
-            print('Unanticipated command case!')
-        return
+
+
+
 
 
                   
@@ -4289,131 +4379,158 @@ class TTL_shutter:
 
 
 
+
+
 class DG645:
-    def Refresh():
-        pvlist=[['MEC:LAS:DDG:0'+str(numii)+':'+chii+'DelaySI.DESC' for chii in ['a','c','e','g']] for numii in [1,2,6,8]];
-        desclist=[['A:PS LATE','C:INH PS EARLY','E:unused','G: unused'],['A:PS EARLY','C:unused','E:EvoHE1','G:EvoHE2'],['A:GaiaQSW','C:GaiaLamp','E:INH UNI','G:GigE TRIG IN'],['A:BIG UNI','C:small UNI','E:INH GigE','G:unused']]
-        for eachboxii in range(len(pvlist)):
-            for eachentryii in range(len(eachboxii)):
-                temppv=EpicsSignal(pvlist[eachboxii][eachentryii])
-                temppv.put(desclist[eachboxii][eachentryii])
-
-    def Snapshot():
-        pass
-    
-    def DGrecordall():
-        fullstr=datetime.now().strftime('%Y%m%d_%H%M%S')+'\n'#date.today.strftime('%Y%m%d')
-        DGnam=['SLICER','MPA1','MASTER','UP/DOWN','STREAK','MPA2','USR','UNIBLITZ']
-        for DGno in [1,2,3,4,5,6,8]:
-            fullstr+=DGnam[DGno-1]+'\n'
-            for lett in ['a','b','c','d','e','f','g','h']:
-                head='MEC:LAS:DDG:{:0>2}:{}DelaySI'.format(DGno,lett)
-                tail='.DESC'
-                tpv1=EpicsSignal(head);tpv2=EpicsSignal(head+tail);
-                try:
-                    fullstr+='{}: {}'.format(tpv2.get(),tpv1.get())+'\n'
-                except:
-                    fullstr+='ERROR'+'\n'
-        with open(str(LPL.psfilepath()+'DG/snapshot'+LPL.DateString()+'.txt'),'a') as out:
-            out.write(fullstr)
-    
-    def DGsaveref(Laser):
-        if Laser.lower() == 'spl':
-            DGnam=['SLICER','MPA1','MPA2','UNIBLITZ']
-            DGno=[1,2,6,8]
-        elif Laser.lower() == 'lpl':
-            DGnam=['MASTER','UP/DOWN','STREAK']
-            DGno=[3,4,5]
-        else:
-            print('Choose LPL or SPL!'); return
-        #MEC:LAS:DDG:03:gReferenceMO
-        #re.findall('(.+) \+ (.+)','A + 1.005e-6')
-
-
-
-
-class SPL:
+# =============================================================================
+#     def Refresh():
+#         pvlist=[['MEC:LAS:DDG:0'+str(numii)+':'+chii+'DelaySI.DESC' for chii in ['a','c','e','g']] for numii in [1,2,6,8]];
+#         desclist=[['A:PS LATE','C:INH PS EARLY','E:unused','G: unused'],['A:PS EARLY','C:unused','E:EvoHE1','G:EvoHE2'],['A:GaiaQSW','C:GaiaLamp','E:INH UNI','G:GigE TRIG IN'],['A:BIG UNI','C:small UNI','E:INH GigE','G:unused']]
+#         for eachboxii in range(len(pvlist)):
+#             for eachentryii in range(len(eachboxii)):
+#                 temppv=EpicsSignal(pvlist[eachboxii][eachentryii])
+#                 temppv.put(desclist[eachboxii][eachentryii])
+# 
+#     def Snapshot():
+#         pass
+#     
+#     def DGrecordall():
+#         fullstr=datetime.now().strftime('%Y%m%d_%H%M%S')+'\n'#date.today.strftime('%Y%m%d')
+#         DGnam=['SLICER','MPA1','MASTER','UP/DOWN','STREAK','MPA2','USR','UNIBLITZ']
+#         for DGno in [1,2,3,4,5,6,8]:
+#             fullstr+=DGnam[DGno-1]+'\n'
+#             for lett in ['a','b','c','d','e','f','g','h']:
+#                 head='MEC:LAS:DDG:{:0>2}:{}DelaySI'.format(DGno,lett)
+#                 tail='.DESC'
+#                 tpv1=EpicsSignal(head);tpv2=EpicsSignal(head+tail);
+#                 try:
+#                     fullstr+='{}: {}'.format(tpv2.get(),tpv1.get())+'\n'
+#                 except:
+#                     fullstr+='ERROR'+'\n'
+#         with open(str(LPL.psfilepath()+'DG/snapshot'+LPL.DateString()+'.txt'),'a') as out:
+#             out.write(fullstr)
+#     
+#     def DGsaveref(Laser):
+#         if Laser.lower() == 'spl':
+#             DGnam=['SLICER','MPA1','MPA2','UNIBLITZ']
+#             DGno=[1,2,6,8]
+#         elif Laser.lower() == 'lpl':
+#             DGnam=['MASTER','UP/DOWN','STREAK']
+#             DGno=[3,4,5]
+#         else:
+#             print('Choose LPL or SPL!'); return
+#         #MEC:LAS:DDG:03:gReferenceMO
+#         #re.findall('(.+) \+ (.+)','A + 1.005e-6')
+#         return (DGnam, DGno)
+# =============================================================================
     pass
 
 
 
 
+
+class SPL:#pointing, alignment, and other macros + automation routines
+    pass
+
+
+
+
+
 class UNIBLITZ:
-    def UNIBLITZconfig(modeReq):
-        """
-        Configures UNIBLITZ shutter state and triggers for different MEC SPL modes:
-        
-        modeReq=      6mm state  6mm TRIG?  65mm state  65mm TRIG?
-        ----------------------------------------------------------
-        'alignment'-->   OPEN       INH        OPEN        INH
-        'blocked'  -->  CLOSED      INH       CLOSED       INH
-        'MPA1SS'   -->  CLOSED    ENABLED      OPEN        INH
-        'MPA1Burst'-->  CLOSED**    INH**      OPEN        INH
-        'MPA2SS'   -->  CLOSED    ENABLED     CLOSED     ENABLED
-        'MPA2Burst'-->  CLOSED    ENABLED      OPEN        INH    
-        """
-        if   modeReq.casefold() == 'alignment':
-            UNI_toggle_trigger('INHall')
-            UNI_toggle_shutter('openall')
-        elif modeReq.casefold() == 'blocked':
-            UNI_toggle_trigger('INHall')
-            UNI_toggle_shutter('closeall')
-        elif modeReq.casefold() == 'mpa1ss':
-            UNI_toggle_trigger('INH65mm')
-            UNI_toggle_shutter('open65mm')
-            UNI_toggle_trigger('ENA06mm')
-            UNI_toggle_shutter('close06mm')
-        elif modeReq.casefold() == 'mpa1burst':
-            UNI_toggle_trigger('INHall')
-            UNI_toggle_shutter('open65mm')
-            UNI_toggle_shutter('close06mm')
-        elif modeReq.casefold() == 'mpa2ss':
-            UNI_toggle_trigger('ENAall')
-            UNI_toggle_shutter('closeall')
-        elif modeReq.casefold() == 'mpa2burst':
-            UNI_toggle_trigger('INH65mm')
-            UNI_toggle_shutter('open65mm')
-            UNI_toggle_trigger('ENA06mm')
-            UNI_toggle_shutter('close06mm')
-        else:
-            print('Please choose a valid configuration mode!')
-            print(UNIBLITZconfig.__doc__)
-        
-    def UNI_toggle_shutter(ENAINHReq):
-        """
-        [command=open|close][shutdia=06|65|all]mm
-        """
-        #get a status readback capability...
-        if shutdia=='all':
-            templist=['06','65']
-        else:
-            if shutdia in ['06','65']:
-                templist=[shutdia]
-            else:
-                print("Only accepts '06' or '65' or 'all' for shutter specification!")
-                return False
-        if command=='open':
-            polarity='POS'#get actual val
-        elif command=='close':
-            polarity='NEG'#get actual val
-        else:
-            print("Only accepts 'open' or 'close' for shutter command!")
-            return False
-        for eashutt in templist:
-            wPV('PV:CH{}:Polarity'.format(chAB if eashutt=='65' else chCD), polarity)#get actual chan val and PV
-        return
-        
-    
-    def UNI_toggle_trigger(ENAINHReq, RepRateReq=0):
-        """
-        INHall, INH65mm == ENA06mm, ENBall
-        RepRateReq
-        all need to address UNI_TRIG_IN EVR channel, which needs to be reestablished... (stolen!)
-        """
-        #get a status readback capability...
-        if 'INH':
-            pass
-        return
+# =============================================================================
+#     def UNIBLITZconfig(modeReq):
+#         """
+#         Configures UNIBLITZ shutter state and triggers for different MEC SPL modes:
+#         
+#         modeReq=      6mm state  6mm TRIG?  65mm state  65mm TRIG?
+#         ----------------------------------------------------------
+#         'alignment'-->   OPEN       INH        OPEN        INH
+#         'blocked'  -->  CLOSED      INH       CLOSED       INH
+#         'MPA1SS'   -->  CLOSED    ENABLED      OPEN        INH
+#         'MPA1Burst'-->  CLOSED**    INH**      OPEN        INH
+#         'MPA2SS'   -->  CLOSED    ENABLED     CLOSED     ENABLED
+#         'MPA2Burst'-->  CLOSED    ENABLED      OPEN        INH    
+#         """
+#         if   modeReq.casefold() == 'alignment':
+#             UNI_toggle_trigger('INHall')
+#             UNI_toggle_shutter('openall')
+#         elif modeReq.casefold() == 'blocked':
+#             UNI_toggle_trigger('INHall')
+#             UNI_toggle_shutter('closeall')
+#         elif modeReq.casefold() == 'mpa1ss':
+#             UNI_toggle_trigger('INH65mm')
+#             UNI_toggle_shutter('open65mm')
+#             UNI_toggle_trigger('ENA06mm')
+#             UNI_toggle_shutter('close06mm')
+#         elif modeReq.casefold() == 'mpa1burst':
+#             UNI_toggle_trigger('INHall')
+#             UNI_toggle_shutter('open65mm')
+#             UNI_toggle_shutter('close06mm')
+#         elif modeReq.casefold() == 'mpa2ss':
+#             UNI_toggle_trigger('ENAall')
+#             UNI_toggle_shutter('closeall')
+#         elif modeReq.casefold() == 'mpa2burst':
+#             UNI_toggle_trigger('INH65mm')
+#             UNI_toggle_shutter('open65mm')
+#             UNI_toggle_trigger('ENA06mm')
+#             UNI_toggle_shutter('close06mm')
+#         else:
+#             print('Please choose a valid configuration mode!')
+#             print(UNIBLITZconfig.__doc__)
+#         
+#     def UNI_toggle_shutter(ENAINHReq):
+#         """
+#         [command=open|close][shutdia=06|65|all]mm
+#         """
+#         #get a status readback capability...
+#         if shutdia=='all':
+#             templist=['06','65']
+#         else:
+#             if shutdia in ['06','65']:
+#                 templist=[shutdia]
+#             else:
+#                 print("Only accepts '06' or '65' or 'all' for shutter specification!")
+#                 return False
+#         if command=='open':
+#             polarity='POS'#get actual val
+#         elif command=='close':
+#             polarity='NEG'#get actual val
+#         else:
+#             print("Only accepts 'open' or 'close' for shutter command!")
+#             return False
+#         for eashutt in templist:
+#             wPV('PV:CH{}:Polarity'.format(chAB if eashutt=='65' else chCD), polarity)#get actual chan val and PV
+#         return
+#         
+#     
+#     def UNI_toggle_trigger(ENAINHReq, RepRateReq=0):
+#         """
+#         INHall, INH65mm == ENA06mm, ENBall
+#         RepRateReq
+#         all need to address UNI_TRIG_IN EVR channel, which needs to be reestablished... (stolen!)
+#         """
+#         #get a status readback capability...
+#         if 'INH':
+#             pass
+#         return
+# =============================================================================
+    pass
+
+
+
+
+
+class Spectrometer:#Qminis
+    pass
+
+
+
+
+
+class VISAR:#(laser, streak cameras, etc.)
+    pass
+
+
 
 
 
@@ -4490,7 +4607,20 @@ class CtrlSys:
 #         nmlist=['mec-las-laptop06','mec-las-laptop07','mec-las-laptop05','scope-ics-mectc1-1','scope-ics-meclas-lecroy01','scope-ics-meclas-lecroy-a','scope-ics-meclas-lecroy-b','mec-las-laptop09','mec-las-laptop11','mec-las-laptop01','win-ics-mec-tundra','mec-las-laptop12','win-ics-mec-visar1','win-ics-mec-visar2','mec-las-vitara','mec-rga-laptop','scope-ics-mec-tektronix','mec-phasics-laptop01','win-ics-mec-phasics01','win-ics-mec-phasics02','mec-visar-cage','mec-las-laptop03']
 #         return list(zip(nmlist,qqip,qqn))
 # =============================================================================
-
+# =============================================================================
+#     @classmethod
+#     def cmp2_checker(cls):
+#         cmpmsg=[];
+#         #qqpl=[eacmp[0] for eacmp in MECcompylist()]
+#         qqpl=cls.MECcompylist2()
+#         with multiprocessing.Pool() as pool:
+#             cmpmsg=pool.map(cls.plzchkcmp2,qqpl)
+#         print('{:<15}'.format('Computer name')+'{:<28}'.format('IP shorthand')+'{:<6}'.format('Ping?'))
+#         for ii in range(len(cmpmsg)):
+#             print(''.join(cmpmsg[ii]))
+#         return
+# =============================================================================
+#also consider adding ping, netconfig search, grep_pv, grep_ioc, serverStat, imgr, etc.
     @staticmethod
     def MECcompylist():
         qqn=['mec-laser','mec-monitor','mec-daq','mec-control','mec-console',
@@ -4517,50 +4647,107 @@ class CtrlSys:
             print(''.join(cmpmsg[ii]))
         return
 
-# =============================================================================
-#     @classmethod
-#     def cmp2_checker(cls):
-#         cmpmsg=[];
-#         #qqpl=[eacmp[0] for eacmp in MECcompylist()]
-#         qqpl=cls.MECcompylist2()
-#         with multiprocessing.Pool() as pool:
-#             cmpmsg=pool.map(cls.plzchkcmp2,qqpl)
-#         print('{:<15}'.format('Computer name')+'{:<28}'.format('IP shorthand')+'{:<6}'.format('Ping?'))
-#         for ii in range(len(cmpmsg)):
-#             print(''.join(cmpmsg[ii]))
-#         return
-# =============================================================================
 
-    #consider adding ping, netconfig search, grep_pv, grep_ioc, serverStat, imgr, etc.
+
+
                   
-class SCALLOPS:
+class SCALLOPS:#port everything over from Bethany and Patin
     pass
+
+
+
+
+
+class LabEnv:#(air/rack/etc. temp/humidity/etc.) 
+    pass
+
+
+
+
+
+class RIS:#etc.
+    pass
+
+
+
+
                   
+class PDU:
+    pass
+
+
+
+
+
 class GLOBAL:
-    EYFE=EpicsSignal('MEC:LAS:FLOAT:01')
-    ECD1w=EpicsSignal('MEC:LAS:FLOAT:02')
-    EAB1w=EpicsSignal('MEC:LAS:FLOAT:03')
-    EEF1w=EpicsSignal('MEC:LAS:FLOAT:04')
-    EGH1w=EpicsSignal('MEC:LAS:FLOAT:05')
-    EIJ1w=EpicsSignal('MEC:LAS:FLOAT:06')
-    EAB2w=EpicsSignal('MEC:LAS:FLOAT:07')
-    EEF2w=EpicsSignal('MEC:LAS:FLOAT:08')
-    EGH2w=EpicsSignal('MEC:LAS:FLOAT:09')
-    EIJ2w=EpicsSignal('MEC:LAS:FLOAT:10')
+    EYFE=EpicsSignal('MEC:LAS:FLOAT:01');
+    ECD1w=EpicsSignal('MEC:LAS:FLOAT:02');
+    EAB1w=EpicsSignal('MEC:LAS:FLOAT:03');
+    EEF1w=EpicsSignal('MEC:LAS:FLOAT:04');
+    EGH1w=EpicsSignal('MEC:LAS:FLOAT:05');
+    EIJ1w=EpicsSignal('MEC:LAS:FLOAT:06');
+    EAB2w=EpicsSignal('MEC:LAS:FLOAT:07');
+    EEF2w=EpicsSignal('MEC:LAS:FLOAT:08');
+    EGH2w=EpicsSignal('MEC:LAS:FLOAT:09');
+    EIJ2w=EpicsSignal('MEC:LAS:FLOAT:10');
     CurrExp=EpicsSignal('MEC:LAS:FLOAT:11.DESC')
     CurrRun=EpicsSignal('MEC:LAS:FLOAT:11')
-    TTLAB=EpicsSignal('MEC:LAS:FLOAT:14')
-    TTLEF=EpicsSignal('MEC:LAS:FLOAT:15')
-    TTLGH=EpicsSignal('MEC:LAS:FLOAT:16')
-    TTLIJ=EpicsSignal('MEC:LAS:FLOAT:17')
-    TTLWW=EpicsSignal('MEC:LAS:FLOAT:18')
-    TTLXX=EpicsSignal('MEC:LAS:FLOAT:19')
-    TTLREGEN=EpicsSignal('MEC:LAS:FLOAT:20')
-    
+    #=EpicsSignal('MEC:LAS:FLOAT:12');
+    #=EpicsSignal('MEC:LAS:FLOAT:13');
+    TTLAB=EpicsSignal('MEC:LAS:FLOAT:14');
+    TTLEF=EpicsSignal('MEC:LAS:FLOAT:15');
+    TTLGH=EpicsSignal('MEC:LAS:FLOAT:16');
+    TTLIJ=EpicsSignal('MEC:LAS:FLOAT:17');
+    TTLWW=EpicsSignal('MEC:LAS:FLOAT:18');
+    TTLXX=EpicsSignal('MEC:LAS:FLOAT:19');
+    TTLREGEN=EpicsSignal('MEC:LAS:FLOAT:20');
+    #
     EREGEN=EpicsSignal('MEC:LAS:FLOAT:21')
     ETOPAS=EpicsSignal('MEC:LAS:FLOAT:22')
     EMPA1=EpicsSignal('MEC:LAS:FLOAT:23')
     EMPA2=EpicsSignal('MEC:LAS:FLOAT:24')
+    #=EpicsSignal('MEC:LAS:FLOAT:25')
+    #=EpicsSignal('MEC:LAS:FLOAT:26')
+    #=EpicsSignal('MEC:LAS:FLOAT:27')
+    #=EpicsSignal('MEC:LAS:FLOAT:28')
+    #=EpicsSignal('MEC:LAS:FLOAT:29')
+    #=EpicsSignal('MEC:LAS:FLOAT:30')
+    EcoeffYFE=EpicsSignal('MEC:LAS:FLOAT:31')
+    Ecoeff1in1wCD=EpicsSignal('MEC:LAS:FLOAT:32')
+    Ecoeff2in1wAB=EpicsSignal('MEC:LAS:FLOAT:33')
+    Ecoeff2in1wEF=EpicsSignal('MEC:LAS:FLOAT:34')
+    Ecoeff2in1wGH=EpicsSignal('MEC:LAS:FLOAT:35')
+    Ecoeff2in1wIJ=EpicsSignal('MEC:LAS:FLOAT:36')
+    Ecoeff2in2wAB=EpicsSignal('MEC:LAS:FLOAT:37')
+    Ecoeff2in2wEF=EpicsSignal('MEC:LAS:FLOAT:38')
+    Ecoeff2in2wGH=EpicsSignal('MEC:LAS:FLOAT:39')
+    Ecoeff2in2wIJ=EpicsSignal('MEC:LAS:FLOAT:40')
+    #(w/y/s1in1w/s42in1w/s42in2w/s + DateStr/today, RunNum, RunFilePath, PulseEnergies; notepadPVs: HAWG; YFE; 1w,2w,etc.; recipe  better than pickle?)
+    #MEC:LAS:ARRAY:01, Desc: loaded pulse segment lengths, len: 10
+    #MEC:LAS:ARRAY:02, Desc: loaded pulse segment endpoints, len: 1
+    #MEC:LAS:ARRAY:03, Desc: Highland grafana, len: 1
+    #MEC:LAS:ARRAY:04, Desc: YFE grafana, len: 1
+    #MEC:LAS:ARRAY:05, Desc: YFEgoal grafana, len: 1
+    #MEC:LAS:ARRAY:06, Desc: 1in1w grafana, len: 1
+    #MEC:LAS:ARRAY:07, Desc: 2in1w grafana, len: 1
+    #MEC:LAS:ARRAY:08, Desc: 2in2w grafana, len: 1
+    #MEC:LAS:ARRAY:09, Desc: 2in2wgoal grafana, len: 1
+    #MEC:LAS:ARRAY:10, Desc: Spare grafana, len: 1
+    #MEC:LAS:ARRAY:11, Desc: Grafana, len: 1
+    #MEC:LAS:ARRAY:12, Desc: Grafana, len: 1
+    #MEC:LAS:ARRAY:13, Desc: Grafana, len: 1
+    #MEC:LAS:ARRAY:14, Desc: Grafana, len: 1
+
+    
+    EcoeffRE1 = 1.64e5
+    EcoeffRE0 = 1.03156061e-01 
+    EcoeffTO1 = 3.48e7
+    EcoeffTO1 = - 1.63e1 
+    EcoeffM11 = 1.81e5
+    EcoeffM10 = - 0.301
+    EcoeffM21 = 1.05e5
+    EcoeffM20 = - 1.39e-1 
+    
     
     PSNS=EpicsSignal('MEC:LAS:ARRAY:01')
     SSS=EpicsSignal('MEC:LAS:ARRAY:02')
@@ -4670,22 +4857,78 @@ class GLOBAL:
     LMapAB=[5,100]
     LMap2=[50,1000]
     PSFILEPATH='/reg/neh/operator/mecopr/mecpython/pulseshaping/'
+    
+    @classmethod
+    def notepadPVreset(cls):
+        efc.wPV('MEC:LAS:FLOAT:01.DESC', 'E_synth_YFE');
+        efc.wPV('MEC:LAS:FLOAT:02.DESC', 'E_synth_CD1w');
+        efc.wPV('MEC:LAS:FLOAT:03.DESC', 'E_synth_AB1w');
+        efc.wPV('MEC:LAS:FLOAT:04.DESC', 'E_synth_EF1w');
+        efc.wPV('MEC:LAS:FLOAT:05.DESC', 'E_synth_GH1w');
+        efc.wPV('MEC:LAS:FLOAT:06.DESC', 'E_synth_IJ1w');
+        efc.wPV('MEC:LAS:FLOAT:07.DESC', 'E_synth_AB2w');
+        efc.wPV('MEC:LAS:FLOAT:08.DESC', 'E_synth_EF2w');
+        efc.wPV('MEC:LAS:FLOAT:09.DESC', 'E_synth_GH2w');
+        efc.wPV('MEC:LAS:FLOAT:10.DESC', 'E_synth_IJ2w');
+        #11: DESC is CurrExp
+        efc.wPV('MEC:LAS:FLOAT:12.DESC', 'reserved');
+        efc.wPV('MEC:LAS:FLOAT:13.DESC', 'reserved');
+        efc.wPV('MEC:LAS:FLOAT:14.DESC', 'AB shutter state');
+        efc.wPV('MEC:LAS:FLOAT:15.DESC', 'EF shutter state');
+        efc.wPV('MEC:LAS:FLOAT:16.DESC', 'GH shutter state');
+        efc.wPV('MEC:LAS:FLOAT:17.DESC', 'IJ shutter state');
+        efc.wPV('MEC:LAS:FLOAT:18.DESC', 'WEST (ABEF) shutter state');
+        efc.wPV('MEC:LAS:FLOAT:19.DESC', 'EAST (GHIJ)shutter state');
+        efc.wPV('MEC:LAS:FLOAT:20.DESC', 'Regen shutter state');
+        #
+        efc.wPV('MEC:LAS:FLOAT:21.DESC', 'E_synth_regen');
+        efc.wPV('MEC:LAS:FLOAT:22.DESC', 'E_synth_TOPAS');
+        efc.wPV('MEC:LAS:FLOAT:23.DESC', 'E_synth_MPA1');
+        efc.wPV('MEC:LAS:FLOAT:24.DESC', 'E_synth_MPA2');
+        efc.wPV('MEC:LAS:FLOAT:25.DESC', 'reserved');
+        efc.wPV('MEC:LAS:FLOAT:26.DESC', 'reserved');
+        efc.wPV('MEC:LAS:FLOAT:27.DESC', 'reserved');
+        efc.wPV('MEC:LAS:FLOAT:28.DESC', 'reserved');
+        efc.wPV('MEC:LAS:FLOAT:29.DESC', 'reserved');
+        efc.wPV('MEC:LAS:FLOAT:30.DESC', 'reserved');
+        efc.wPV('MEC:LAS:FLOAT:31.DESC', 'E_coeff_YFE');
+        efc.wPV('MEC:LAS:FLOAT:32.DESC', 'E_coeff_CD1w');
+        efc.wPV('MEC:LAS:FLOAT:33.DESC', 'E_coeff_AB1w');
+        efc.wPV('MEC:LAS:FLOAT:34.DESC', 'E_coeff_EF1w');
+        efc.wPV('MEC:LAS:FLOAT:35.DESC', 'E_coeff_GH1w');
+        efc.wPV('MEC:LAS:FLOAT:36.DESC', 'E_coeff_IJ1w');
+        efc.wPV('MEC:LAS:FLOAT:37.DESC', 'E_coeff_AB2w');
+        efc.wPV('MEC:LAS:FLOAT:38.DESC', 'E_coeff_EF2w');
+        efc.wPV('MEC:LAS:FLOAT:39.DESC', 'E_coeff_GH2w');
+        efc.wPV('MEC:LAS:FLOAT:40.DESC', 'E_coeff_IJ2w');
+        #last updated 20220128
+        efc.wPV('MEC:LAS:FLOAT:31', 0.3285);#was .3578
+        efc.wPV('MEC:LAS:FLOAT:32', 0.5871);
+        efc.wPV('MEC:LAS:FLOAT:33', 224.0);
+        efc.wPV('MEC:LAS:FLOAT:34', 177.5);
+        efc.wPV('MEC:LAS:FLOAT:35', 260.9826);
+        efc.wPV('MEC:LAS:FLOAT:36', 113.2);
+        efc.wPV('MEC:LAS:FLOAT:37', 134.0135);
+        efc.wPV('MEC:LAS:FLOAT:38', 165.2398);
+        efc.wPV('MEC:LAS:FLOAT:39', 194.1412);
+        efc.wPV('MEC:LAS:FLOAT:40', 156.9307);
+        
+        efc.wPV('MEC:LAS:ARRAY:01', 'Psns pulse segment lengths:10')
+        efc.wPV('MEC:LAS:ARRAY:02', 'SSs pulse segment endpoint pairs:20')
+        efc.wPV('MEC:LAS:ARRAY:03', 'Highland Grafana:140')
+        efc.wPV('MEC:LAS:ARRAY:04', 'YFE Grafana:140')
+        efc.wPV('MEC:LAS:ARRAY:05', 'YFEgoal Grafana:140')
+        efc.wPV('MEC:LAS:ARRAY:06', '1in1w Grafana:140')
+        efc.wPV('MEC:LAS:ARRAY:07', '2in1w Grafana:140')
+        efc.wPV('MEC:LAS:ARRAY:08', '2in2w Grafana:140')
+        efc.wPV('MEC:LAS:ARRAY:09', '2in2wgoal Grafana:140')
+        efc.wPV('MEC:LAS:ARRAY:10', 'Spare Grafana')
+        efc.wPV('MEC:LAS:ARRAY:11', 'Spare Grafana')
+        efc.wPV('MEC:LAS:ARRAY:12', 'Spare Grafana')
+        efc.wPV('MEC:LAS:ARRAY:13', 'Spare Grafana')
+        efc.wPV('MEC:LAS:ARRAY:14', 'Spare Grafana')
+        
 
-#(w/y/s1in1w/s42in1w/s42in2w/s + DateStr/today, RunNum, RunFilePath, PulseEnergies; notepadPVs: HAWG; YFE; 1w,2w,etc.; recipe  better than pickle?)
-#MEC:LAS:ARRAY:01, Desc: loaded pulse segment lengths, len: 10
-#MEC:LAS:ARRAY:02, Desc: loaded pulse segment endpoints, len: 1
-#MEC:LAS:ARRAY:03, Desc: Highland grafana, len: 1
-#MEC:LAS:ARRAY:04, Desc: YFE grafana, len: 1
-#MEC:LAS:ARRAY:05, Desc: YFEgoal grafana, len: 1
-#MEC:LAS:ARRAY:06, Desc: 1in1w grafana, len: 1
-#MEC:LAS:ARRAY:07, Desc: 2in1w grafana, len: 1
-#MEC:LAS:ARRAY:08, Desc: 2in2w grafana, len: 1
-#MEC:LAS:ARRAY:09, Desc: 2in2wgoal grafana, len: 1
-#MEC:LAS:ARRAY:10, Desc: Spare grafana, len: 1
-#MEC:LAS:ARRAY:11, Desc: Grafana, len: 1
-#MEC:LAS:ARRAY:12, Desc: Grafana, len: 1
-#MEC:LAS:ARRAY:13, Desc: Grafana, len: 1
-#MEC:LAS:ARRAY:14, Desc: Grafana, len: 1
 
 
 
