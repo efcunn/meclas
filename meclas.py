@@ -62,14 +62,19 @@ import multiprocessing
 #import threading
 import termios, tty
 import select
-import regex as re
+import re
+#import regex as re
 
 
 
 class LPL:
     """
     Stores functions related to LPL pulse shaping, data acquisition, etc.
-    
+    Functions include:
+        LinearWave(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height)
+        LinearWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002)
+        ParabolicWave2(Edge1PixNo,Edge1Height,MidPixNo,MidHeight,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002)
+        ExponentialWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002)
     """
 # =============================================================================
 #       potential future work
@@ -158,8 +163,7 @@ class LPL:
             itt+=1
         return NewString
 
-
-    def LinearWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,offsetQ,arraylenQ):
+    def LinearWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002):
         """
         Generates linearly-interpolated waveform between two points (and 0 outside those points)
         with requested linear offset and array length
@@ -187,7 +191,7 @@ class LPL:
             itt+=1
         return np.array(NewList)+offsetQ
 
-    def ParabolicWave2(Edge1PixNo,Edge1Height,MidPixNo,MidHeight,Edge2PixNo,Edge2Height,offsetQ,arraylenQ):
+    def ParabolicWave2(Edge1PixNo,Edge1Height,MidPixNo,MidHeight,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002):
         """
         Generates parabolically-interpolated waveform using three points (and 0 outside those points)
         with requested linear offset and array length
@@ -218,7 +222,7 @@ class LPL:
             itt+=1
         return np.array(NewList)+offsetQ
 
-    def ExponentialWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,offsetQ,arraylenQ):
+    def ExponentialWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002):
         """
         Generates exponentially-interpolated waveform using two points (and 0 outside those points)
         with requested linear offset and array length
@@ -246,6 +250,48 @@ class LPL:
                 NewList.append(offsetQ-offsetQ)
             itt+=1
         return np.array(NewList)+offsetQ
+
+
+    @classmethod
+    def EW2(cls,Psns=0,SSs=0,YSSs=0,offsetQ=0):
+        """
+        Shorthand for generating most common ExponentialWave2 output (or even combination of several ExponentialWave2 outputs)
+        
+        Preferred use is to use LPL.Psns_set(), LPL.SSs_set(), and LPL.YSSs_set() for EW2 to find and use
+        
+        When using Psns=0 / SSs=0 / YSSs=0: Psns, SSs, and YSSs all are loaded with the corresponding ***_get() commands
+        
+        Alternatively they can be specified explicitly, i.e. Psns=[10.25], SSs=[[98,100]], YSSs=[[.02,.114]]
+        
+        Compared to ExponentialWave2, EW2:
+            :can combine several summed ExponentialWave2 outputs into one convenient function
+                :Example: EW2(Psns=[5,5.25],SSs=[[49,50],[98,100]],YSSs=[[.01,.03],[.055,.16]]) is equivalent to
+                 ExponentialWave2(500,.01,1000,.03,0,5002)+ExponentialWave2(1000,.055,1525,.16,0,5002)
+            :infers Edge1PixNo and Edge2PixNo of each ExponentialWave2 segment from Psns and SSs
+            :specifies Edge1Height and Edge2Height of each ExponentialWave2 segment using YSSs
+            :still permits offset specification using offsetQ, if desired
+            :automatically uses the standard arraylenQ of 5002
+        """
+        if Psns==0:
+            Psns=cls.Psns_get()
+        if SSs==0:
+            SSs=cls.SSs_get()
+        if YSSs==0:
+            YSSs=cls.YSSs_get()
+        if len(Psns) != len(YSSs):
+            print('Lengths of Psns ({}) and YSSs ({}) do not match! Exiting...'.format(len(Psns),len(YSSs)))
+            return False
+        outwvfm=cls.LinearWave2(500,0,1025,0,0,5002);#500, 1000 1000, 1525
+        YPsns=np.cumsum([0]+[Psns[ii]-0.25*(1 if SSs[ii][1] == SSs[ii+1][0] else 0) for ii in range(len(Psns)-1)] + [Psns[-1]])
+        YPsnsPairs=[[500+YPsns[ii]*100, 500+YPsns[ii+1]*100] for ii in range(len(YPsns)-1)]
+        try:
+            for ii in range(len(YSSs)):
+                outwvfm+=cls.ExponentialWave2(Edge1PixNo=YPsnsPairs[ii][0],Edge1Height=YSSs[ii][0],
+                                          Edge2PixNo=YPsnsPairs[ii][1],Edge2Height=YSSs[ii][1],offsetQ=offsetQ,arraylenQ=5002)
+            return outwvfm
+        except:
+            print('Failed to generate waveform!')
+            return False
 
     def ComboWave(WList): #accept list or csv of 140 pts
         """
@@ -298,10 +344,23 @@ class LPL:
         NewInputPulseShape=np.clip([abs((StepQ*(G[ii]-M[ii]))+I[ii])*math.ceil(G[ii]) for ii in range(len(G))],0,1)#math.ceil(G) is a mask that disallows values outside the goal
         return NewInputPulseShape
 
-    def FixEdges(WavF,DurationListQ,StartStopListQ,CorrFactorFront=1.02,CorrFactorBack=1.02,PtNumFront=1,PtNumBack=2):
+    def FixEdges(WavF,DurationListQ,StartStopListQ,PtNumFront=3,PtNumBack=2,CorrFactorFront=.97,CorrFactorBack=1.):
         """
         Applies fixed relationship between points close to waveform discontinuities (e.g. at beginning, end, step, etc.)
         specified by Duration and Start/Stop lists
+        
+        WavF is the input waveform 
+        DurationListQ is the pulse segment durations (e.g. Psns, like [10.25] or [5,5.25])
+        StartStopListQ is the pulse segment stop/stop list (e.g. SSs, like [[98,100]] or [[24,25],[98,100]])
+        PtNumFront is the number of points at the front edge of the pulse to be fixed
+        PtNumBack is the number of points at the back edge of the pulse to be fixed
+        CorrFactorFront is the fixed multiplicative factor applied from point to point moving towards the front edge of the pulse
+           :for the example of PtNumFront=2, CorrFactorFront=0.97 sets P_2=0.97*P_3 then P1=0.97*P_2
+        CorrFactorBack is the fixed multiplicative factor applied from point to point moving towards the back edge of the pulse
+           :for the example of PtNumBack=3, CorrFactorBack=1.01 sets P_{K-2}=1.01*P_{K-3} then P_{K-1}=1.01*P_{K-2} 
+            then P_{K}=1.01*P_{K-1}, where P_{K} is the pulse's last point, P_{K-1} is the pulse's second-to-last point, etc.
+        
+        New waveform with fixed edges is returned
         """
         FirstPix=0#was 50
         DurListQ=np.cumsum([0]+DurationListQ)
@@ -334,6 +393,8 @@ class LPL:
     def smooth_wvfm(wvfm_in):
         """
         Performs rudimentary smoothing of waveform by looking at neighboring pixels
+        
+        Accepts single waveform as input and return smoothed output waveform
         """
         wvfm_out=wvfm_in[:]
         for ii in range(len(wvfm_in)-2):
@@ -364,6 +425,114 @@ class LPL:
             SegmentsQ.append(cls.LinearWave(int(BeginPix+(DurListQ[ii]*4)),int(20000.*SSListQ[ii][0]/100.),int(BeginPix+(DurListQ[ii+1]*4)-1),int(20000.*SSListQ[ii][1]/100.)))
         return np.append(np.delete(np.array(cls.ComboWave(SegmentsQ)),np.array(DelListQ).astype(int)),[0]*len(DelListQ))
     
+    def Psns_get():
+        """
+        Return the current value of Psns, which is an array of pulse duration segments in nanoseconds
+        Example: after loading a 15ns flat-top pulse, LPL.Psns_get() will return [15.25]
+        Example: after loading a 5ns-5ns step pulse, LPL.Psns_get() will return [5,5.25]
+        """
+        return GLOBAL.PSNS.get()
+        
+    def Psns_set(NewPsnsArr):
+        """
+        Sets the current value of Psns, which is an array of pulse duration segments in nanoseconds
+        Each individual value in the array must be a multiple of 0.25 (spacing of Highland AWG pixels is 250ps or 0.25ns)
+        Psns must have one segment duration for every pair of segment heights in the segment heights parameter SSs
+        Total summed length of array values should be less than 35ns (total shaping window of Highland AWG)
+        If the back end of a particular segment is continuous in height with the front end of the following segment
+            (e.g. for smooth ramp pulses), you must add 0.25 to the duration of the first segment
+            
+        This function can be used in preparation for making a new pulse recipe
+        Example: use LPL.Psns_set([7.25]) to prepare to make a new 7ns pulse
+        Example: use LPL.Psns_set([5,8.25]) to prepare to make a new 5ns-8ns step pulse
+        """
+        if type(NewPsnsArr) is not list:
+            NewPsnsArr=[NewPsnsArr]
+        for val in NewPsnsArr:
+            if val%.25 != 0:
+                print('Psns values need to be multiples of 0.25ns! Update failed!')
+                return False
+        try:
+            GLOBAL.PSNS.set(NewPsnsArr)
+            return
+        except:
+            print('Psns update failed!')
+            return False
+        
+    @classmethod    
+    def SSs_get(cls):
+        """
+        Return the current value of SSs, which is an array of pairs of pulse segments heights as percentages of maximum (100%)
+        Example: after loading a 15ns flat-top pulse (Psns=[15.25]), LPL.SSs_get() may return something like [[98,100]]
+        Example: after loading a 3ns-7ns pulse with a 4x ratio (Psns=[3,7.25]), LPL.SSs_get() may return something like [[24,25],[98,100]]
+        """
+        return [GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(cls.Psns_get()))]
+        
+    def SSs_set(NewSSsArr):
+        """
+        Sets the current value of SSs, which is an array of pairs of pulse segments heights as percentages of maximum (100%)
+        SSs must have one pair of heights for every duration segment in the segment durations parameter Psns
+        This function can be used in preparation for making a new pulse recipe
+        Example: use LPL.SSs_set([[98,100]]) to prepare to make a new flat-top
+        Example: use LPL.Psns_set([[32,33],[75,100]]) to prepare to make a new step pulse with a flat first step and a
+                 15%-gradient second step and a 3x ratio between the maxima of the two steps
+        """
+        if len(np.array(NewSSsArr).shape) == 1:
+            try:
+                if len(NewSSsArr)%2 == 0:
+                    GLOBAL.SSS.set(NewSSsArr)
+                    return
+                else:
+                    raise Exception
+            except:
+                print('Failed to write new SSs values! SSs length: {}'.format(len(NewSSsArr)))
+                return False
+        elif len(np.array(NewSSsArr).shape) == 2:
+            try:
+                GLOBAL.SSS.set([val for SSpair in NewSSsArr for val in SSpair])
+                return
+            except:
+                print('Parsing failure! Failed to write new SSs values!')
+                return False
+        else:
+            print('Unexpected shape! Failed to write new SSs values!')
+            return False
+        
+    @classmethod    
+    def YSSs_get(cls):
+        """
+        Return the current value of YSSs, which is an array of pairs of pulse segments heights as YFE diode amplitude
+        These parameters are used as shorthand in EW2()
+        """
+        return [GLOBAL.YSSS.get()[2*ii:2*ii+2] for ii in range(len(cls.Psns_get()))]
+        
+    def YSSs_set(NewYSSsArr):
+        """
+        Sets the current value of YSSs, which is an array of pairs of pulse segments heights as YFE diode amplitude
+        YSSs must have one pair of heights for every duration segment in the segment durations parameter Psns
+        This function can be used in specifying the YFE goal segment heights
+        """
+        if len(np.array(NewYSSsArr).shape) == 1:
+            try:
+                if len(NewYSSsArr)%2 == 0:
+                    GLOBAL.YSSS.set(NewYSSsArr)
+                    return
+                else:
+                    raise Exception
+            except:
+                print('Failed to write new YSSs values! YSSs length: {}'.format(len(NewYSSsArr)))
+                return False
+        elif len(np.array(NewYSSsArr).shape) == 2:
+            try:
+                GLOBAL.YSSS.set([val for YSSpair in NewYSSsArr for val in YSSpair])
+                return
+            except:
+                print('Parsing failure! Failed to write new YSSs values!')
+                return False
+        else:
+            print('Unexpected shape! Failed to write new YSSs values!')
+            return False
+            
 # =============================================================================
 #     @classmethod
 #     def PulseGoal10Hz(cls):
@@ -377,12 +546,12 @@ class LPL:
 # =============================================================================
 
     @classmethod
-    def PulseMax(cls,DurationListQ,StartStopListQ,zzJQ):#fixed normalization part
+    def PulseMax(cls,DurationListQ,StartStopListQ,zzJQ):
         """Gets amplitude setting for segmented, arbitrary PulseGoal using Duration and Start/Stop lists and targeted energy"""
         return (1.0*StartStopListQ[-1][-1]/100.)*(50.0*zzJQ/(5.0*500.0*np.sum(cls.PulseGoal(DurationListQ,StartStopListQ))))
 
     @classmethod
-    def wIter2(cls,sQ,wQ,DurationListQ,StartStopListQ,zzJQ,mapnowQ,stepQQ):
+    def wIter2(cls,sQ,wQ,DurationListQ,StartStopListQ,zzJQ,mapnowQ,stepQQ,Hdisplay=False):
         """Calculates next suggested AWG input given 1) a previous full-energy waveform (+ mapping) and its corresponding AWG input,
         2) the Duration and Start/Stop lists to specify the goal, and 3) the requested step size of the correction"""
         avgfwhm=90;avgrange=11;#250;
@@ -399,13 +568,17 @@ class LPL:
         PMQ=cls.PulseMax(DurationListQ,StartStopListQ,zzJQ)*PMQcorr
         wnew2=cls.FixEdges(cls.UpdatingShapingAlgorithm(PGQ,cls.TraceFormatting(sQ,mapnowQ,PMQ,AvgRange=avgrange,FWHM=avgfwhm), wQ,stepQQ),DurationListQ,StartStopListQ)
         #epll([wQ[w1:w2],wnew2[w1:w2],np.array(TraceFormatting2(sQ,mapnowQ,PMQ))[w1:w2]*.6,np.array(PGQ)[w1:w2]*.6])
-        efc.epll([0.*np.array(wnew2[w1:w2]),np.array(wnew2[w1:w2])-np.array(wQ[w1:w2]),np.array(cls.TraceFormatting(sQ,mapnowQ,PMQ,AvgRange=avgrange,FWHM=avgfwhm))[w1:w2]*.6,np.array(PGQ)[w1:w2]*.6])
+        if Hdisplay == True:
+            efc.epll([0.*np.array(wnew2[w1:w2]),np.array(wnew2[w1:w2])-np.array(wQ[w1:w2]),np.array(cls.TraceFormatting(sQ,mapnowQ,PMQ,AvgRange=avgrange,FWHM=avgfwhm))[w1:w2]*.6,np.array(PGQ)[w1:w2]*.6])
+        efc.epllxy([cls.weichToPowerVsTime(sQ),cls.PGToPowerVsTime(Psns=DurationListQ, SSs=StartStopListQ, zzJQ=zzJQ)],
+                   xlb='Time (ns)',ylb='Power (W)',
+                   xlim=[-1,1+np.sum(DurationListQ)-0.25*np.sum([1 if StartStopListQ[ii][1] == StartStopListQ[ii][0] else 0 for ii in range(len(StartStopListQ)-1)])])
         return wnew2
-
 
     def weichall():
         """
         Generates weighted waveforms for YFE, 1in1w, 4x2in1w, and 4x2in2w outputs using scopes and energy meters 
+        Returns an array of energy-weighted waveforms in the order listed above (with the 2in heads in order AB, EF, GH, IJ)
         """
         try:
             LAchall=LOSC('a').rchall();LBchall=LOSC('b').rchall();L2chall=LOSC('2').rchall();
@@ -425,8 +598,23 @@ class LPL:
             return False
 
     def weichToPowerVsTime(weiarr):
-        """Converts energy-weighted scope channels into a tuple of (time_values, instantaneous_power_in_watts)"""
+        """
+        Converts energy-weighted scope channels into a tuple of (time_values, instantaneous_power_in_watts)
+        (Assumes a fixed time window of 50ns)
+        """
         return (np.linspace(-5,45,len(weiarr)), np.array(weiarr)/(50e-9/len(weiarr)))
+    
+    @classmethod
+    def PGToPowerVsTime(cls, Psns, SSs, zzJQ):
+        """
+        Converts energy-weighted PulseGoal into a tuple of (time_values, instantaneous_power_in_watts) 
+        (time window chosen to match the same 50ns window of diagnostic fast photodiodes + oscilloscopes)
+        Accepts pulse-specifying input parameters Psns (pulse duration segments in ns), SSs (pulse segment start/stop heights in %),
+            and overal pulse energy zzJQ
+        """
+        PGlistwvfm=[0]*20 + list(cls.PulseGoal(DurationListQ=Psns,StartStopListQ=SSs)) + [0]*40
+        PGwvfm = np.array(PGlistwvfm) * (zzJQ)/(np.sum(PGlistwvfm)) / (50e-9 / len(PGlistwvfm))
+        return (np.linspace(-5,45,len(PGwvfm)),PGwvfm)
     
 # =============================================================================
 #     def Deconv():
@@ -435,7 +623,10 @@ class LPL:
 # =============================================================================
         
     def pshostcheck():
-        """This warns users if they're trying to do sg that requires the use specific hosts (e.g. to reach the ICS subnet)"""
+        """
+        This warns users if they're trying to do sg that requires the use specific hosts (e.g. to reach the ICS subnet)
+        List of approved hosts can be found in GLOBAL.OKHOSTS
+        """
         try:
             hostname=socket.gethostname()
             if hostname not in GLOBAL.OKHOSTS:
@@ -458,29 +649,13 @@ class LPL:
             print('Failed: could not ID current user!')
         return
 
-    def LMap2():
-        """"Pixel mapping from LeCroy2 horizontal axis (10002px) to Highland (140px)"""
-        return GLOBAL.LMap2
-    #            if len(stoday[-1]) == 10002:
-    #            mapnow=LMap()
-    #        elif len(stoday[-1]) == 1002:
-    #            mapnow=[5,100]
-
-    def LMapAB():
-        """"Pixel mapping from LeCroyA and LeCroyB horizontal axis (1002px) to Highland (140px)"""
-        return GLOBAL.LMapAB
-
     def DateString():
         """Shorthand way of getting the current date in format YYYYMMDD"""
         qdate=date.today()
         return qdate.strftime('%Y%m%d')
 
-    def psfilepath():
-        """Sets the file path for everything related to pulse shaping"""
-        return GLOBAL.PSFILEPATH
-
     def get_curr_exp(timeout=15, hutch_name='mec'): 
-        """Returns the name of the current experiment running in MEC"""
+        """Returns the name of the current experiment running in MEC and adds it to notepad PV GLOBAL.CurrExp"""
         script=pcdsdaq.ext_scripts.SCRIPTS.format(hutch_name,'get_curr_exp') 
         exp=pcdsdaq.ext_scripts.cache_script(script,timeout=timeout) 
         curr_exp=exp.lower().strip('\n')
@@ -494,7 +669,7 @@ class LPL:
         return curr_exp
     
     def get_curr_run(timeout=15, hutch_name='mec'): 
-        """Returns the current run number in MEC"""
+        """Returns the current run number in MEC and adds it to notepad PV GLOBAL.CurrRun"""
         try:
             curr_run=pcdsdaq.ext_scripts.get_run_number(hutch=hutch_name,timeout=10)
         except:
@@ -512,21 +687,30 @@ class LPL:
         cls.pshostcheck()
         DateStr=cls.DateString()
         for head in ['w','y','s1in1w','s42in1w','s42in2w','s']:
-            if not os.path.exists(cls.psfilepath()+head+DateStr+'.p'):
+            if not os.path.exists(GLOBAL.PSFILEPATH+head+DateStr+'.p'):
                 if head == 'w':
                     print('No laser file found -- probably the first shot of the day.')
                 try:
-                    efc.pickledump2([],cls.psfilepath()+head+DateStr+'.p')
+                    efc.pickledump2([],GLOBAL.PSFILEPATH+head+DateStr+'.p')
                 except:
-                    print('Could not create file {}!'.format(cls.psfilepath()+head+DateStr+'.p'))
+                    print('Could not create file {}!'.format(GLOBAL.PSFILEPATH+head+DateStr+'.p'))
         curr_run=cls.get_curr_run()
         return (DateStr, curr_run)
 
     @classmethod
-    def psacqx(cls, save_flag=True, RunNumQQ=False):
-        """Acquisition sequence after shooting the LPL, primary component of pspreshot()"""
+    def psacqx(cls, save_flag=True, display=False):#RunNumQQ=False, 
+        """
+        Acquisition sequence after shooting the LPL, primary component of psposthot()
+        (pspostshot() is the preferred function to use before taking a shot)
+        Actions taken include preparing save folders, gathering shot data, preparing mini shot report, saving data to file, etc.
+        
+        save_flag=True means that the shot data will be saved to the eLog of the current experiment (in addition to internal laser records)
+        save_flag=False means that the shot data will be saved to internal laser records only, NOT to user eLog
+        display=True means that the acquired shot's energy-weighted, combined 2in2w waveform will be plotted as power vs. time
+        display=False means that no waveform plot will be generated upon execution of the function
+        """
         (DateStr, curr_run) = cls.psheaders()
-        psfpQ=cls.psfilepath()
+        psfpQ=GLOBAL.PSFILEPATH
         RunNumStr=str(curr_run).zfill(4)
         RunName='run'+str(RunNumStr)+'_'
         headlist=['AB','EF','GH','IJ']
@@ -614,8 +798,8 @@ class LPL:
 
         total_print+=EMeters.EGall(return_txt=True);
         
-        old_energies = pickle.load(open(cls.psfilepath()+'preshot_energies.p','rb'))
-        new_energies = EMeters.EGall(return_txt=False);
+        old_energies = pickle.load(open(GLOBAL.PSFILEPATH+'preshot_energies.p','rb'))
+        new_energies = EMeters.EGall(return_energy_only=True);
         energy_warning = False
         for ii in range(len(old_energies)):
             if new_energies[ii] == old_energies[ii]:
@@ -623,23 +807,27 @@ class LPL:
                     energy_warning = True
         if energy_warning:
             total_print+=efc.cstr('Caution: at least one non-zero pulse energy did not update on the previous shot!','BRY')
-        
 
         if save_flag:
             np.savetxt(str(fpQ+RunName+'energies.txt'),PulseEnergies)
             efc.eplxysav(*cls.weichToPowerVsTime(WeightedSum),str(fpQ+RunName+'_'+str(int(round(np.sum(PulseEnergies))))+'J'),
                      abs_path=True,xlb='Time (ns)',ylb='Power (W)')
-         
 
         fileheads=['w','y','s1in1w','s42in1w','s42in2w','s'];
         prepickle=[HAWG().ReadPulseHeights(),weiarr[0],weiarr[1],weiarr[2:6],weiarr[6:10],WeightedSum]
         Psns=GLOBAL.PSNS.get()#pickle.load(open(psfpQ+'Psns.p','rb'))
         SSs=[GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(Psns))]#pickle.load(open(psfpQ+'SSs.p','rb'))
+        
+        if display:
+            efc.epllxy([cls.weichToPowerVsTime(WeightedSum),cls.PGToPowerVsTime(Psns=Psns, SSs=SSs, zzJQ=np.sum(PulseEnergies))],
+                       xlb='Time (ns)',ylb='Power (W)',
+                       xlim=[-1,1+np.sum(Psns)-0.25*np.sum([1 if SSs[ii][1] == SSs[ii][0] else 0 for ii in range(len(SSs)-1)])])
+            
         GLOBAL.WVFMHAWG.put(prepickle[0])
-        GLOBAL.WVFMYFE.put(LPL.TraceFormatting(prepickle[1],cls.LMapAB(),LPL.PulseMax(Psns,SSs,np.sum(prepickle[1]))*10,AvgRange=1,FWHM=1))
-        GLOBAL.WVFM1IN1w.put(LPL.TraceFormatting(prepickle[2],cls.LMapAB(),LPL.PulseMax(Psns,SSs,np.sum(prepickle[2]))*10,AvgRange=1,FWHM=1))
-        GLOBAL.WVFM2IN1w.put(LPL.TraceFormatting(np.sum(prepickle[3],axis=0),cls.LMapAB(),LPL.PulseMax(Psns,SSs,np.sum(prepickle[3]))*10,AvgRange=1,FWHM=1))
-        GLOBAL.WVFM2IN2w.put(LPL.TraceFormatting(prepickle[5],cls.LMap2(),LPL.PulseMax(Psns,SSs,np.sum(prepickle[5]))*1,AvgRange=1,FWHM=1))
+        GLOBAL.WVFMYFE.put(LPL.TraceFormatting(prepickle[1],GLOBAL.LMapAB,LPL.PulseMax(Psns,SSs,np.sum(prepickle[1]))*10,AvgRange=1,FWHM=1))
+        GLOBAL.WVFM1IN1w.put(LPL.TraceFormatting(prepickle[2],GLOBAL.LMapAB,LPL.PulseMax(Psns,SSs,np.sum(prepickle[2]))*10,AvgRange=1,FWHM=1))
+        GLOBAL.WVFM2IN1w.put(LPL.TraceFormatting(np.sum(prepickle[3],axis=0),GLOBAL.LMapAB,LPL.PulseMax(Psns,SSs,np.sum(prepickle[3]))*10,AvgRange=1,FWHM=1))
+        GLOBAL.WVFM2IN2w.put(LPL.TraceFormatting(prepickle[5],GLOBAL.LMap2,LPL.PulseMax(Psns,SSs,np.sum(prepickle[5]))*1,AvgRange=1,FWHM=1))
         for ii in range(len(fileheads)):
             templist=pickle.load(open(psfpQ+fileheads[ii]+DateStr+'.p','rb'))
             templist.append(prepickle[ii])
@@ -659,10 +847,16 @@ class LPL:
 
     @classmethod
     def psefc(cls,JreqQ=0,AQQ=0.0):
-        """Provides new update and plot based on single-shot full-energy output pulse"""
+        """
+        Looks at last combined 2in2w waveform and calculates new suggested update to Highland AWG to step towards PulseGoal
+        Also generates plot based on single-shot full-energy output pulse
+        (function not used much for shaping anymore since we predominantly shape at 10Hz now using the function psefc10Hz)
+        JreqQ is the energy scaling for the goal waveform (found using GLOBAL.PSNS and GLOBAL.SSS), used for calculating feedback and for plotting
+        AQQ is the step size used in the feedback calculation; leave set to 0 unless you really know what you are doing (number should be ~<0.1)!
+        """
         (DateStr, curr_run) = cls.psheaders()
 
-        psfpQ=cls.psfilepath()
+        psfpQ=GLOBAL.PSFILEPATH
         Psns=GLOBAL.PSNS.get()#pickle.load(open(psfpQ+'Psns.p','rb'))
         SSs=[GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(Psns))]#pickle.load(open(psfpQ+'SSs.p','rb'))
         Jscale=1
@@ -693,9 +887,9 @@ class LPL:
         AQ=AQQ*BumpQ#.03,.035,.05 seems too big most of the time
         if len(wtoday) > 0:
             if len(stoday[-1]) == 10002:
-                mapnow=cls.LMap2()#[50,1000]
+                mapnow=GLOBAL.LMap2#[50,1000]
             elif len(stoday[-1]) == 1002:
-                mapnow=cls.LMapAB()#[5,100]
+                mapnow=GLOBAL.LMapAB#[5,100]
             else:
                 print('Unanticipated pulse shot array length: '+str(len(stoday[-1])));
                 print('Aborting...');return
@@ -710,11 +904,39 @@ class LPL:
         ##EXECUTE THIS FILE FIRST TO DETERMINE THE UPDATED WAVEFORM
 
     @classmethod
-    def psefc10Hz(cls,pwt=0,numIterQ=50,AQQ=0.03,displayPlot=True,reloopPrompt=True,YFEbkgrdY=0):
-        """Performs 10Hz feedback according to user-supplied YFE waveform target"""
+    def psefc10Hz(cls,pwt=0,numIterQ=50,AQQ=0.03,displayPlot=True,reloopPrompt=True,YFEbkgrdY=0,PtNumFront=3,PtNumBack=2,CorrFactorFront=.97,CorrFactorBack=1.0):
+        """
+        Looks at last 10Hz YFE waveform, calculates new suggested update to Highland AWG to step towards pulse waveform target pwt
+        Also generates side-by-side plots of current YFE waveform & pwt (left) and of residual difference between the two (right)
+        Use the left plot for monitoring performance, use the right plot to watch for convergence/etc.
+        (This function is the underlying workhorse of the psrefrwvfm function)
+        pwt is the pulse waveform target, most often ExponentialWave2(...) or the like
+        numIterQ is the number of iterations used in the convergence loop
+        AQQ is the step size used in each iteration of the convergence loop; value should be kept <<1 (usu. 0.03-0.2)
+        displayPlot allows one to suppress the plots described above (=False) or allow them to be displayed (=True)
+        reloopPrompt allows one the option of adding 50 more iterations after numIterQ has been reached (=True) or not (=False)
+        YFEbkgrdY applies an offset of the YFE diode trace vs pwt; use if noise floor of diode trace does not line up with pwt background
+        CorrFactorFront,CorrFactorBack,PtNumFront,PtNumBack are all useful if one desires to use LPL.FixEdges while converging on pwt
+        """
         avgfwhm=9;avgrange=3;#25;
-        GLOBAL.EVRLPLSSEC.put(43)
-        #psfpQ=cls.psfilepath()   
+        if GLOBAL.EVRLPLSSEC.get() != 43:
+            GLOBAL.EVRLPLSSEN.put(0)
+            GLOBAL.EVRLPLSSEC.put(43)
+        if GLOBAL.EVRLPLSSEN.get() != 1:
+            print('Pulse slicer not enabled! Enable now? [y/n]')
+            checkprompt=efc.getch_with_TO(TOsec=10,display=False)
+            if checkprompt in ('y','Y'):
+                GLOBAL.EVRLPLSSEN.put(1)
+            else:
+                print('Please try again later then!')
+                return False
+        if GLOBAL.MBCmode.get() == 0:
+            print('Bias dither enabled! Disable now? [y/n]')
+            checkprompt=efc.getch_with_TO(TOsec=10,display=False)
+            if checkprompt in ('y','Y'):
+                GLOBAL.MBCmode.put(1)
+            else:
+                print('No? Enjoy your energy and shape fluctuations then, I guess... :/')
         Psns=GLOBAL.PSNS.get()#pickle.load(open(psfpQ+'Psns.p','rb'))
         SSs=[GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(Psns))]#pickle.load(open(psfpQ+'SSs.p','rb'))
         pwtF=np.array(cls.TraceFormatting(pwt,GLOBAL.pwttfmap,1,AvgRange=1,FWHM=1))
@@ -725,8 +947,8 @@ class LPL:
             ops00=SLA._rch(1)-YFEbkgrdY;time.sleep(0.1);
 
             meanerr=[]
-            meanerr.append(np.sum(np.abs(pwtF[:26]-cls.TraceFormatting(ops00,cls.LMapAB(),1,AvgRange=avgrange,FWHM=avgfwhm)[:26])/pwtF[:26])/len(pwtF[:26]))
-            ops00F=cls.TraceFormatting(ops00,cls.LMapAB(),1,AvgRange=avgrange,FWHM=avgfwhm)
+            meanerr.append(np.sum(np.abs(pwtF[:26]-cls.TraceFormatting(ops00,GLOBAL.LMapAB,1,AvgRange=avgrange,FWHM=avgfwhm)[:26])/(pwtF[:26]+1e-3))/len(pwtF[:26]))
+            ops00F=cls.TraceFormatting(ops00,GLOBAL.LMapAB,1,AvgRange=avgrange,FWHM=avgfwhm)
             print('Start loop')
             if displayPlot:
                 plt.ion()
@@ -751,15 +973,15 @@ class LPL:
                         rph=SH._ReadPulseHeights();time.sleep(0.025);
                         #pwtF=np.array(TraceFormatting2(pwt,[25,500],1))
                         ##ops0F=TraceFormatting(ops0,[25,500],1)
-                        ops0F=cls.TraceFormatting(ops0,cls.LMapAB(),1,AvgRange=avgrange,FWHM=avgfwhm)
+                        ops0F=cls.TraceFormatting(ops0,GLOBAL.LMapAB,1,AvgRange=avgrange,FWHM=avgfwhm)
                         #epll([pwtF,ops0F])
-                        meanerr.append(np.sum(np.abs(pwtF[:26]-ops0F[:26])/pwtF[:26])/len(pwtF[:26]));
+                        meanerr.append(np.sum(np.abs(pwtF[:26]-ops0F[:26])/(pwtF[:26]+1e-3))/len(pwtF[:26]));
                         if displayPlot:
                             axss[0].set_data(xdat,ops0F); axs[0].relim(); axs[0].autoscale_view(True,True,True);
                             axss[1].set_data(list(range(len(meanerr))),meanerr); axs[1].relim(); axs[1].autoscale_view(True,True,True);
                             fig.canvas.draw_idle(); plt.pause(0.01);
                         usa0=cls.UpdatingShapingAlgorithm(pwtF,ops0F,np.array(rph)/28000.,AQQ)#.075#.25
-                        usa0FE=cls.FixEdges(usa0,Psns,SSs)
+                        usa0FE=cls.FixEdges(usa0,Psns,SSs,CorrFactorFront=CorrFactorFront,CorrFactorBack=CorrFactorBack,PtNumFront=PtNumFront,PtNumBack=PtNumBack)
                         #usa0FE=FixEdges(usa0,[3,4.25],[[.98*100/8.0,100/8.0],[98,100]])
                         #epll([rph,usa0FE*28000.])
                         SH._WritePulseHeights(usa0FE*28000.);time.sleep(0.05);
@@ -770,7 +992,7 @@ class LPL:
                 ######check and aim
                 if reloopPrompt:
                     print('Would you like to try another 50 iterations? [enter y/n]',end='',flush=True)
-                    checkprompt=efc.getch_with_TO(TOsec=30);
+                    checkprompt=efc.getch_with_TO(TOsec=30,display=False);
                     if checkprompt in ('y','Y'):
                         numIterQ=50
                         if len(checkprompt)>1:
@@ -793,7 +1015,9 @@ class LPL:
 
     @classmethod
     def psupd(cls,newwavQ):
-        """Shortcut to updating the Highland based according to provided waveform"""
+        """
+        Shortcut to updating the Highland AWG using the provided input waveform newwavQ
+        """
         cls.pshostcheck()
         wupdt=newwavQ[:]
         if max(wupdt) < 1.5:
@@ -805,17 +1029,26 @@ class LPL:
 
     @classmethod
     def psloadwvfm(cls,RecipeStrQ,WvGoal10HzHint=False):
-        """Loads a new waveform according to previously-saved recipe"""
+        """
+        Loads a new waveform according to previously-saved recipe RecipeStrQ
+        Options for RecipeStrQ can be found using the LPL.psrecipes() command
+        (LPL.psmenu() allows you to choose a recipe to load without needing to type in the full name of it)
+        
+        WvGoal10HzHint=True means that you will see the YFE waveform hint needed to make the pulse
+            and upon which the execution of LPL.psrefrwvfm() would be based; usually based on ExponentialWave2
+            
+        WvGoal10HzHint=False means that the YFE waveform hint will not be printed to terminal
+        """
         cls.pshostcheck()
         print('Loading timestamp: '+datetime.now().strftime('%A, %d. %B %Y %I:%M:%S%p'))
         try:
-            [Psns,SSs,YFE02mmCurr,YFE06mmCurr,YFE10mmCurr,NewWvfm,WvGoal10Hz] = pickle.load(open(cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p','rb'))
+            [Psns,SSs,YFE02mmCurr,YFE06mmCurr,YFE10mmCurr,NewWvfm,WvGoal10Hz] = pickle.load(open(GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p','rb'))
         except:
-            print('Recipe file '+cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p\' not found.')
+            print('Recipe file '+GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p\' not found.')
             return
-        efc.pickledump2(Psns,cls.psfilepath()+'Psns.p')
+        efc.pickledump2(Psns,GLOBAL.PSFILEPATH+'Psns.p')
         GLOBAL.PSNS.put(Psns)
-        efc.pickledump2(SSs,cls.psfilepath()+'SSs.p')
+        efc.pickledump2(SSs,GLOBAL.PSFILEPATH+'SSs.p')
         GLOBAL.SSS.put([elem for sublist in SSs for elem in sublist])
         YFE.Set(2,YFE02mmCurr);time.sleep(.15);
         YFE.Set(6,YFE06mmCurr);time.sleep(.15);
@@ -835,6 +1068,7 @@ class LPL:
                 yfegoal+=cls.ExponentialWave2(pseparams[ii][0],pseparams[ii][1],pseparams[ii][2],pseparams[ii][3],0,5002)
         else:
             print('No wave extracted: '+WvGoal10Hz)
+        cls.YSSs_set([[pseparams[ii][1],pseparams[ii][3]] for ii in range(len(pseparams))])
         yfegoalF=np.array(cls.TraceFormatting(yfegoal,GLOBAL.pwttfmap,1,AvgRange=1,FWHM=1))
         GLOBAL.WVFMYFEGOAL.put(yfegoalF)
         GLOBAL.WVFM2IN2wGOAL.put(cls.PulseGoal(Psns,SSs))
@@ -847,9 +1081,38 @@ class LPL:
             print('Failed to load new waveform.')
 
     @classmethod
-    def pssavewvfm(cls,PsnsQ=0,SSsQ=0,YFEgetQ=0,TargetwlistDateQ='curr',TargetwindexQ=0,RecipeStrQ=0,WvGoal10HzQ='none'):
-        """Saves a new pulse shape recipe using user-provided parameters"""
+    def pssavewvfm(cls,RecipeStrQ=0,PsnsQ=0,SSsQ=0,YFEgetQ=0,TargetwlistDateQ='curr',TargetwindexQ=0,WvGoal10HzHint='none'):
+        """
+        Saves a new pulse shape recipe using user-provided parameters
+        if setting RecipeStrQ='0' or = of pattern (^E\d+J) (e.g., 'E40J'): function will guess the apropriate name for the recipe based on PsnsQ and SSsQ
+            otherwise: set RecipeStrQ equal to the name of the recipe you want
+            Example: leaving RecipeStrQ blank or using RecipeStrQ=0 results in a name of '10ns00grad' if PsnsQ=[10.25] and SSsQ=[[98,100]]
+            Example: using RecipeStrQ='E20J' results in a name of '04ns06ns020to10stepE20J' if PsnsQ=[4,6.25] and SSsQ=[[19,20],[98,100]]
+            Example: using RecipeStrQ='ThanosPulse1337' results in a name of 'ThanosPulse1337'
+        
+        if setting PsnsQ=0 and SSsQ=0: function will load PsnsQ and SSsQ from GLOBAL.PSNS and GLOBAL.SSS, respectively
+            otherwise: set PsnsQ and SSsQ equal to the values you would like included in your recipe
+            Example: leaving PsnsQ and SSsQ blank or setting them equal to 0 results in 
+                     PsnsQ=[20.25] and SSsQ=[[85,100]] if GLOBAL.PSNS is [20.25] and GLOBAL.SSS is [[85,100]]
+            Example: setting PsnsQ=[2.25,2.25,2.25,2.25,2.25] and SSsQ=[[10,15],[15,25],[25,40],[40,80],[80,100]] sets the
+                     values of PsnsQ and SSsQ explicitly without regard for GLOBAL.PSNS and GLOBAL.SSS
+        
+        if setting YFEgetQ=0: function will read out and save current YFE eDrive currents as part of the recipe
+            otherwise: these can be saved explicitly, but there is almost never a good reason to do this anymore
+        
+        if setting TargetwlistDateQ='curr': current Highland AWG waveform shot will be used to make the recipe
+            otherwise: set TargetwlistDateQ equal to the desired date and TargetwindexQ equal to the desired shot number
+            Example: TargetwlistDateQ='20220211' and TargetwindexQ=3 would make a recipe using the fourth shot on 2022Feb11
+            
+        IMPORTANT: please set WvGoal10HzHint equal to the target waveform for the YFE output
+            Failure to do so will prevent psrefrwvfm() from working later, as it will have no provided target waveform 
+            Example: use WvGoal10HzHint='ExponentialWave2(500,.1,1025,.8,0,5002)' if ExponentialWave2(500,.1,1025,.8,0,5002) was
+                     the waveform used in psefc10Hz while you were creating the waveform for your recipe
+        """
         cls.pshostcheck()
+        if not isinstance(WvGoal10HzHint, str):
+            print('Warning: WvGoal10HzHint must be a string. Please put quotes around your shaping hint and try again!')
+            return False
         print('Saving timestamp: '+datetime.now().strftime('%A, %d. %B %Y %I:%M:%S%p'))
         if TargetwlistDateQ == 'curr':
             print('Using current Highland waveform...')
@@ -859,57 +1122,89 @@ class LPL:
                 print('Failed! HAWG');
                 return False
             try:
-                wlastarr=pickle.load(open(cls.psfilepath()+'w'+cls.DateString()+'.p','rb'))
+                wlastarr=pickle.load(open(GLOBAL.PSFILEPATH+'w'+cls.DateString()+'.p','rb'))
                 if wlastarr[-1] == NewWvfmQ:
                     print('Pulse looks equivalent to the most recent pulse, w'+cls.DateString()+'['+str(len(wlastarr)-1)+']')
-                    WvGoal10HzQ=WvGoal10HzQ+';; w'+cls.DateString()+'['+str(len(wlastarr)-1)+']'
+                    WvGoal10HzHint=WvGoal10HzHint+';; w'+cls.DateString()+'['+str(len(wlastarr)-1)+']'
                 else:
-                    WvGoal10HzQ=WvGoal10HzQ+';; sometime after most recent w'+cls.DateString()+'['+str(len(wlastarr)-1)+']'
+                    WvGoal10HzHint=WvGoal10HzHint+';; sometime after most recent w'+cls.DateString()+'['+str(len(wlastarr)-1)+']'
             except:
                 print('Failed to load most recent amplified shot.')
         else:
-            wavehistQ=pickle.load(open(cls.psfilepath()+'w'+TargetwlistDateQ+'.p','rb'))
+            wavehistQ=pickle.load(open(GLOBAL.PSFILEPATH+'w'+str(TargetwlistDateQ)+'.p','rb'))
             NewWvfmQ=wavehistQ[TargetwindexQ][:]
-            WvGoal10HzQ=WvGoal10HzQ+', w'+TargetwlistDateQ+'['+str(TargetwindexQ)+']'
+            WvGoal10HzHint=WvGoal10HzHint+', w'+str(TargetwlistDateQ)+'['+str(TargetwindexQ)+']'
 
         if PsnsQ == 0:
-            #PsnsQ = pickle.load(open(cls.psfilepath()+'Psns.p','rb'))
             PsnsQ=GLOBAL.PSNS.get()#pickle.load(open(psfpQ+'Psns.p','rb'))
         if SSsQ == 0:
-            #SSsQ = pickle.load(open(cls.psfilepath()+'SSs.p','rb'))
             SSsQ=[GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(PsnsQ))]#pickle.load(open(psfpQ+'SSs.p','rb'))
         if YFEgetQ == 0:
             YFEgetQ=YFE.Get(display=False)
         [YFE02mmCurrQ,YFE02mmCurrQ,YFE02mmCurrQ,YFE02mmCurrQ,YFE06mmCurrQ,YFE10mmCurrQ]=YFEgetQ
-        if RecipeStrQ == 0:
-            #learn formatting for pulse from Psns and SSs
-            pass
+        
+        if (RecipeStrQ == 0) or (len(re.findall('(^E\d+J)',RecipeStrQ))>0):#learn formatting for pulse from Psns and SSs
+            if (RecipeStrQ[0] in ('e','E')):#allows to tag on an energy description, e.g. E20J for a 20J version of a pulse
+                RecipeStrQend=RecipeStrQ
+            else:
+                RecipeStrQend=''
+            RecipeStrQ=''
+            if len(PsnsQ) == 1:#if only one segment, it'll be ##ns##grad [+any energy description]
+                RecipeStrQ+='{:02}ns'.format(round(PsnsQ[0]))
+                gradval=round(SSsQ[0][1]-SSsQ[0][0])
+                RecipeStrQ+='{:02}grad'.format(0 if gradval < 3 else 99 if gradval>99 else gradval)
+            elif len(PsnsQ) == 2:#if two segments, it'll be ##ns##ns###to100step [+any grad info] [+any energy description]
+                RecipeStrQ+='{:02}ns{:02}ns'.format(round(PsnsQ[0]),round(PsnsQ[0]))
+                RecipeStrQ+='{:03}to100step'.format(round(SSsQ[0][1]))
+                if ((SSsQ[0][1] - SSsQ[0][0]) > 2) or ((SSsQ[1][1] - SSsQ[1][0]) > 2):
+                    gradval=round(SSsQ[0][1]-SSsQ[0][0])
+                    RecipeStrQ+='{:02}grad'.format(0 if gradval < 3 else 99 if gradval>99 else gradval)
+                    gradval2=round(SSsQ[1][1]-SSsQ[1][0])
+                    RecipeStrQ+='{:02}grad'.format(0 if gradval2 < 3 else 99 if gradval2>99 else gradval2)
+            else:#otherwise it'll be ##ns###to100ramp [+any energy description]
+                RecipeStrQ+='{:02}ns'.format(round(np.sum(PsnsQ)-0.25*np.sum([1 if SSsQ[ii][1] == SSsQ[ii][0] else 0 for ii in range(len(SSsQ)-1)])))
+                RecipeStrQ+='{:03}to100ramp'.format(round(SSsQ[0][0]))
+            RecipeStrQ+=RecipeStrQend
         oldfilefound=True
 
         try:
-            dummyQ = pickle.load(open(cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p','rb'))
-            print('Old recipe found with same name: '+cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p')
+            dummyQ = pickle.load(open(GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p','rb'))
+            print('Old recipe found with same name: '+GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p')
         except:
             oldfilefound=False
         iiQ=0
         while oldfilefound:
             iiQ=iiQ+1
             try:
-                pickle.load(open(cls.psfilepath()+'recipes/load'+RecipeStrQ+'_'+str(iiQ).zfill(2)+'.p','rb'));
+                pickle.load(open(GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'_'+str(iiQ).zfill(2)+'.p','rb'));
             except:
                 oldfilefound=False
                 dummyQ[-1]='**replaced on '+cls.DateString()+'** '+dummyQ[-1]
-                efc.pickledump2(dummyQ,cls.psfilepath()+'recipes/load'+RecipeStrQ+'_'+str(iiQ).zfill(2)+'.p')
-                print('Saved old recipe as '+cls.psfilepath()+'recipes/load'+RecipeStrQ+'_'+str(iiQ).zfill(2)+'.p')
+                efc.pickledump2(dummyQ,GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'_'+str(iiQ).zfill(2)+'.p')
+                print('Saved old recipe as '+GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'_'+str(iiQ).zfill(2)+'.p')
         try:
-            efc.pickledump2([PsnsQ,SSsQ,YFE02mmCurrQ,YFE06mmCurrQ,YFE10mmCurrQ,NewWvfmQ,WvGoal10HzQ],cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p')
-            print('Saved new recipe as '+cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p')
+            efc.pickledump2([PsnsQ,SSsQ,YFE02mmCurrQ,YFE06mmCurrQ,YFE10mmCurrQ,NewWvfmQ,WvGoal10HzHint],GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p')
+            print('Saved new recipe as '+GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p')
         except:
             print('Failed to save new recipe.')
 
     @classmethod
     def psviewwvfm(cls,RecipeStrQ='none',TargetwlistDateQ='curr',TargetwindexQ=0,WvGoal10HzHint=False):
-        """Displays waveform and parameters that are part of a previously-saved recipe"""
+        """
+        Displays waveform and parameters that are part of a previously-saved recipe
+        (LPL.psmenu() allows you to choose a recipe to view without needing to type in the full name of it)
+        
+        Set RecipeStrQ equal to the recipe you want to view, e.g. RecipeStrQ='10ns00grad'
+            :if no RecipeStrQ is provided, displayed pulse will be chosen according to TargetwlistDateQ and TargetwindexQ
+        
+        if using TargetwlistDateQ='curr' and TargetwindexQ=0 with RecipeStrQ='none' or blank: most recent pulse will be shown
+            :otherwise choose the date and shot number of the pulse desired
+            :Example: TargetwlistDateQ='20220214' and TargetwindexQ=6 will display the seventh saved pulse from 2022Feb14
+            
+        if using WvGoal10HzHint=True: any saved waveform hints will be printed to terminal; setting WvGoal10HzHint=False results in no printout
+            :this is useful primarily when hoping to make adjustments to a recipe or to create a completely new recipe
+            :i.e. use the hint to make modifications to the returned ExponentialWave2(...) parameters suitable for your new needs
+        """
         cls.pshostcheck()
         if RecipeStrQ == 'none':
             if TargetwlistDateQ == 'curr':
@@ -917,8 +1212,8 @@ class LPL:
                 iidQ=0
                 while not foundlastshot:
                     try:
-                        wlastarr=pickle.load(open(cls.psfilepath()+'w'+str(int(cls.DateString())-iidQ)+'.p','rb'))
-                        slastarr=pickle.load(open(cls.psfilepath()+'s'+str(int(cls.DateString())-iidQ)+'.p','rb'))
+                        wlastarr=pickle.load(open(GLOBAL.PSFILEPATH+'w'+str(int(cls.DateString())-iidQ)+'.p','rb'))
+                        slastarr=pickle.load(open(GLOBAL.PSFILEPATH+'s'+str(int(cls.DateString())-iidQ)+'.p','rb'))
                         wlast=wlastarr[-1][:]
                         slast=slastarr[-1][:]
                         print('Retrieving most recent shot: w'+str(int(cls.DateString())-iidQ)+'['+str(len(wlastarr)-1)+']')
@@ -927,20 +1222,25 @@ class LPL:
                         iidQ=iidQ+1
             else:
                 try:
-                    wlastarr=pickle.load(open(cls.psfilepath()+'w'+TargetwlistDateQ+'.p','rb'))
-                    slastarr=pickle.load(open(cls.psfilepath()+'s'+TargetwlistDateQ+'.p','rb'))
-                    wlast=wlastarr[TargetwindexQ]
-                    slast=slastarr[TargetwindexQ]
+                    wlastarr=pickle.load(open(GLOBAL.PSFILEPATH+'w'+str(TargetwlistDateQ)+'.p','rb'))
+                    slastarr=pickle.load(open(GLOBAL.PSFILEPATH+'s'+str(TargetwlistDateQ)+'.p','rb'))
+                    wlast=wlastarr[int(TargetwindexQ)]
+                    slast=slastarr[int(TargetwindexQ)]
                 except:
                     print('Failed to load at given date and index: '+TargetwlistDateQ+', '+str(TargetwindexQ))
+            Psns=cls.Psns_get()
+            SSs=cls.SSs_get()
             efc.epl(wlast)
-            efc.epl(slast)
+            efc.epllxy([cls.weichToPowerVsTime(slast), cls.PGToPowerVsTime(Psns=Psns, SSs=SSs, zzJQ=np.sum(slast))],
+                       xlb='Time (ns)',ylb='Power (W)',
+                       xlim=[-1,1+np.sum(Psns)-0.25*np.sum([1 if SSs[ii][1] == SSs[ii][0] else 0 for ii in range(len(SSs)-1)])])
+            return 
         else:
             try:
-                [Psns,SSs,YFE02mmCurr,YFE06mmCurr,YFE10mmCurr,NewWvfm,WvGoal10Hz] = pickle.load(open(cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p','rb'))
+                [Psns,SSs,YFE02mmCurr,YFE06mmCurr,YFE10mmCurr,NewWvfm,WvGoal10Hz] = pickle.load(open(GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p','rb'))
             except:
-                print('Recipe file '+cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p\' not found.')
-                return
+                print('Recipe file '+GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p\' not found.')
+                return False
             print('Retrieved recipe: load'+RecipeStrQ)
             print('Psns: '+str(list(Psns))+', SSs: '+str([list(SSs_sub) for SSs_sub in SSs]))
             print('YFEcurr:: 2mm: '+'{:5.1f}'.format(YFE02mmCurr)+', 6mm: '+'{:5.1f}'.format(YFE06mmCurr)+', 10mm: '+'{:5.1f}'.format(YFE10mmCurr))
@@ -952,8 +1252,10 @@ class LPL:
                 wstrinx0=wstrinx-len(tempstr)
                 loaddate=tempstr[wstrinx0+1:wstrinx0+9]
                 loadindx=int(tempstr[wstrinx0+10:-1])
-                saskarr=pickle.load(open(cls.psfilepath()+'s'+loaddate+'.p','rb'))
-                efc.epl(saskarr[loadindx])
+                saskarr=pickle.load(open(GLOBAL.PSFILEPATH+'s'+loaddate+'.p','rb'))
+                efc.epllxy([cls.weichToPowerVsTime(saskarr[loadindx]),cls.PGToPowerVsTime(Psns=Psns, SSs=SSs, zzJQ=np.sum(saskarr[loadindx]))],
+                           xlb='Time (ns)',ylb='Power (W)', 
+                           xlim=[-1,1+np.sum(Psns)-0.25*np.sum([1 if SSs[ii][1] == SSs[ii][0] else 0 for ii in range(len(SSs)-1)])])
                 print('Pulse energy was ~{}J'.format(np.sum(saskarr[loadindx])))
             except:
                 print('Failed to load 2w waveform for display.')
@@ -963,23 +1265,36 @@ class LPL:
     def psrefrwvfm(cls,RecipeStrQ='latest',numStepsQ=50,stepSizeQ=0.25,displayPlot=True,reloopPrompt=True):
         """
         Refreshes 10Hz YFE waveform according to target shape given by previously-saved recipe
+        
         If you do not specify a recipe in RecipeStrQ, it will automatically begin refreshing the shape loaded most recently
+            :otherwise: use RecipeStrQ='10ns00grad' to begin refreshing from the 
+             current waveform towards the YFE goal waveform for the 10ns00grad pulse
+        
+        Use numStepsQ to specify the number of 10Hz iterations to take 
+        Use stepSizeQ to specify the size of the corrective step per iteration; should be <<1 (usu. 0.01-0.3)
+        Use displayPlot=True to display the waveform as it converges to the goal (as with psefc10Hz)
+            :using displayPlot=False will not show the plot
+        Use reloopPrompt=True to give the operator an opportunity to add more iterations after the first numStepsQ have elapsed
+            :using reloopPrompt=False will cause the function to terminate as soon as numStepsQ have elapsed
         """
         cls.pshostcheck()
         print('Loading timestamp: '+datetime.now().strftime('%A, %d. %B %Y %I:%M:%S%p'))
+        if not YFE.OnCheck(display=False):
+            print('YFE does not appear to be on! Check YFE status first!')
+            return False
         #load and extract the pulse target from the desired recipe
         if RecipeStrQ=='latest':
             RecipeStrQ=GLOBAL.CurrShape.get()
         try:
-            [Psns,SSs,YFE02mmCurr,YFE06mmCurr,YFE10mmCurr,NewWvfm,WvGoal10Hz] = pickle.load(open(cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p','rb'))
+            [Psns,SSs,YFE02mmCurr,YFE06mmCurr,YFE10mmCurr,NewWvfm,WvGoal10HzHint] = pickle.load(open(GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p','rb'))
         except:
-            print('Recipe file '+cls.psfilepath()+'recipes/load'+RecipeStrQ+'.p\' not found.')
+            print('Recipe file '+GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p\' not found.')
             return
-        print('Hint text: '+WvGoal10Hz)
-        pseparams=np.array(re.findall('ExponentialWave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10Hz),dtype=np.float32);
-        pslparams=np.array(re.findall('LinearWave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10Hz),dtype=np.float32);
+        print('Hint text: '+WvGoal10HzHint)
+        pseparams=np.array(re.findall('ExponentialWave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10HzHint),dtype=np.float32);
+        pslparams=np.array(re.findall('LinearWave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10HzHint),dtype=np.float32);
         try:
-            psYFEbkgrdY=float(re.findall('YFEbkgrdY\s?=\s?([-+]?\d+\.?\d*|[-+]?\.\d+)',WvGoal10Hz)[0]);
+            psYFEbkgrdY=float(re.findall('YFEbkgrdY\s?=\s?([-+]?\d+\.?\d*|[-+]?\.\d+)',WvGoal10HzHint)[0]);
         except:
             psYFEbkgrdY=0
         yfegoal=cls.LinearWave2(500,0,1025,0,0,5002);
@@ -989,7 +1304,7 @@ class LPL:
             for ii in range(len(pseparams)): 
                 yfegoal+=cls.ExponentialWave2(pseparams[ii][0],pseparams[ii][1],pseparams[ii][2],pseparams[ii][3],0,5002)
         else:
-            print('No wave extracted: '+WvGoal10Hz)
+            print('No wave extracted: '+WvGoal10HzHint)
             return
         #close the shutters
         #print('NOT closing the shutters... hope you\'re protecting your sample!')
@@ -1055,15 +1370,20 @@ class LPL:
 
     @classmethod
     def psrecipes(cls):
-        """Prints and returns a list of all previously-saved pulse recipes"""
-        allrec=glob.glob(cls.psfilepath()+'recipes/*.p');
-        oldrec=glob.glob(cls.psfilepath()+'recipes/*_*.p')
+        """
+        Prints and returns a list of all previously-saved pulse recipes
+        LPL.psmenu() shows this list but also allows you to load or view a recipe
+        """
+        allrec=glob.glob(GLOBAL.PSFILEPATH+'recipes/*.p');
+        oldrec=glob.glob(GLOBAL.PSFILEPATH+'recipes/*_*.p')
         currec=[ext[60:-2] for ext in allrec if ext not in oldrec];currec.sort();
         return currec
     
     @classmethod
     def psmenu(cls):
-        """Allows you to select a recipe to load"""
+        """
+        Allows you to select a recipe to load or view
+        """
         recipelist=cls.psrecipes()
         print('Pulse recipes:')
         for pair in list(zip(list(range(len(recipelist))),recipelist)):
@@ -1074,6 +1394,9 @@ class LPL:
                         'Enter Q to quit.'))
         checkprompt=efc.input_with_TO(TOsec=30,display=False)
         if checkprompt:
+            if checkprompt[0] not in ('v','V','l','L'):
+                print('Exiting...')
+                return
             try:
                 recipenum=int(checkprompt[1:])
                 if recipenum > len(recipelist):
@@ -1081,22 +1404,24 @@ class LPL:
             except:
                 print('I\'m sorry, that\'s not a valid recipe number. Try again!')
                 return False
-            if checkprompt.lower().startswith('L'):
+            if checkprompt.lower().startswith('l'):
                 print('Loading {} pulse!'.format(recipelist[recipenum]))
                 cls.psloadwvfm(recipelist[recipenum])
                 return
-            elif checkprompt.lower().startswith('V'):
+            elif checkprompt.lower().startswith('v'):
                 print('Displaying {} pulse!'.format(recipelist[recipenum]))
                 cls.psviewwvfm(recipelist[recipenum],WvGoal10HzHint=True);
-                print('Would you like to load it? [y/n]')
-                checkprompt2=efc.getch_with_TO(20,display=False)
-                if checkprompt2 not in ('y','Y'):
-                    print('Hope you can find someething else you like! :D')
-                    return
-                else:
-                    print('Loading {} pulse!'.format(recipelist[recipenum]))
-                    cls.psloadwvfm(recipelist[recipenum])
-                    return
+                #add load option back in after fixing plot blocking...
+                #print('Would you like to load it? [y/n]')
+                #checkprompt2=efc.getch_with_TO(20,display=False)
+                #if checkprompt2 not in ('y','Y'):
+                #    print('Hope you can find someething else you like! :D')
+                #    return
+                #else:
+                #    print('Loading {} pulse!'.format(recipelist[recipenum]))
+                #    cls.psloadwvfm(recipelist[recipenum])
+                #    return
+                return
             else:
                 print('Exiting menu...')
                 return
@@ -1106,7 +1431,10 @@ class LPL:
 
     @classmethod
     def pspreshot(cls):
-        """Prepares state of the laser for taking a single full-energy shot"""
+        """
+        Prepares and checks state of the laser for taking a single full-energy shot
+        Because of checks/safeguards, this is the preferred function to use before taking a shot
+        """
         cls.pshostcheck()
         if not YFE.OnCheck(display=False):
             print('WARNING: YFE seems to be off... Attempting to turn on YFE...')
@@ -1127,6 +1455,7 @@ class LPL:
             if np.abs(GLOBAL.MBCbias.get() - (currbias+10)) < 3:
                 GLOBAL.MBCbias.put(currbias);
                 efc.dotsleep(2);
+                prechk = True
             else:
                 print('*')
                 print('WARNING: MBC not responding!!')
@@ -1135,8 +1464,8 @@ class LPL:
             print('MBC is not safe! Resetting the MBC...')
             MBC.Reset();##up above, check emission AND check currents???
             YFE.SetAll(True,displayQ=False)
-            cls.pspreshot()
-            prechk = False
+            returnval=cls.pspreshot()
+            return returnval
         if GLOBAL.CurrShape.get().lower() == 'yfeedge':
             print('{}{}'.format(efc.cstr('WARNING: ','BRW,BBRR'),
                                 efc.cstr('last loaded pulse was YFEedge! Are you SURE you want to continue? [y/n]','BRW,BBRR')))
@@ -1170,7 +1499,7 @@ class LPL:
         Psns=GLOBAL.PSNS.get()#pickle.load(open(psfpQ+'Psns.p','rb'))
         SSs=[GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(Psns))]#pickle.load(open(psfpQ+'SSs.p','rb'))
         print('Current pulse target is: '+str(list(Psns))+' ns, '+str([list(SSs_sub) for SSs_sub in SSs])+' % of max power.')
-        print('The most recently loaded pulse shape is: '+GLOBAL.CurrShape.get()+' (load/refresh stamp:'+GLOBAL.CurrShapeLoadTime.get()+')')
+        print('The most recently loaded pulse shape is: '+GLOBAL.CurrShape.get()+' (load/refresh stamp: {:015.8f})'.format(GLOBAL.CurrShapeLoadTime.get()))
         not_charging='';not_enabled='';yes_enabled='';headchanlist=['CD','A','B','E','F','G','H','I','J'];
         temppv1=[GLOBAL.PFNCDEN,GLOBAL.PFNAEN,GLOBAL.PFNBEN,GLOBAL.PFNEEN,GLOBAL.PFNFEN,GLOBAL.PFNGEN,GLOBAL.PFNHEN,GLOBAL.PFNIEN,GLOBAL.PFNJEN]
         temppv2=[GLOBAL.PFNCDCS,GLOBAL.PFNACS,GLOBAL.PFNBCS,GLOBAL.PFNECS,GLOBAL.PFNFCS,GLOBAL.PFNGCS,GLOBAL.PFNHCS,GLOBAL.PFNICS,GLOBAL.PFNJCS]
@@ -1188,17 +1517,25 @@ class LPL:
         TTL_shutter.Toggle('close'+not_enabled,display=False);time.sleep(1.5);#close shutters that aren't enabled
         print('Current shutter status:')
         TTL_shutter.Status(display=True);
-        efc.pickledump2(EMeters.EGall(), cls.psfilepath()+'preshot_energies.p')#used to check if energy meters update or not
+        efc.pickledump2(EMeters.EGall(return_energy_only=True), GLOBAL.PSFILEPATH+'preshot_energies.p')#used to check if energy meters update or not
         return prechk
         #waveform pre-check? verify shutters are open?
 
     @classmethod
-    def pspostshot(cls,save_flag=True,RunNumQQ=9000):
-        """Executes post-shot routine for saving data and returning laser to appropriate state"""
+    def pspostshot(cls,save_flag=True,display=False):
+        """
+        Executes post-shot routine for saving data and returning laser to appropriate state
+        This is the preferred function to use after taking a shot (psacqx() is inside)
+        
+        save_flag=True means that the shot data will be saved to the eLog of the current experiment (in addition to internal laser records)
+        save_flag=False means that the shot data will be saved to internal laser records only, NOT to user eLog
+        display=True means that the acquired shot's energy-weighted, combined 2in2w waveform will be plotted as power vs. time
+        display=False means that no waveform plot will be generated upon execution of the function
+        """
         GLOBAL.EVRLPLLAMPEN.put(0)
         GLOBAL.EVRLPLSSEN.put(0)
         cls.pshostcheck()
-        cls.psacqx(save_flag=save_flag,RunNumQQ=RunNumQQ)#took out _noLecroyA
+        cls.psacqx(save_flag=save_flag,display=display)#took out _noLecroyA
         #psefc();
         TTL_shutter.Toggle('openall',display=False);#make sure all shutters are open again...
         print('Resetting bias tracking...')
@@ -1208,7 +1545,18 @@ class LPL:
 
     @classmethod
     def SHG_opt(cls,armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start in the open state... 
-        """Optimizes the tuning of the doubler angles to maximize the conversion efficiency of the arms of the LPL"""
+        """
+        Optimizes the tuning of the doubler angles to maximize the conversion efficiency of the arms of the LPL
+        Prompts inlcuded to help insure system is in appropriate state for optimization
+        Entire function should take only a couple of minutes; live display allows you to monitor progress
+        If new value is too close to edge of window, it is recommended to optimize that arm again
+        (If the doublers are way far off (no detection), tune the Newport motor back until it is closer)
+        
+        If leaving armsQ blank: all arms are optimized in the order of AB, EF, GH, IJ
+        Instead, one may choose specific arms to optimize
+            :EXAMPLE: armsQ='ABIJ' optimizes only arms AB and IJ
+            :EXAMPLE: armsQ='EF' optimizes only arm EF
+        """
         print('Running this routine requires ALL TTL shutters to begin in the open state! The YFE must be on with the bias dither initially enabled!')
         if np.sum(TTL_shutter.Status(display=False)[-1]) > 0:
             print('Warning! The shutters don\'t all appear to be open! ',end='',flush=True);TTL_shutter.Status(display=True);
@@ -1239,7 +1587,7 @@ class LPL:
         GLOBAL.MBCmode.put(1)#set MAN mode on MBC
         if np.sum(YFE.Get(display=False)) < 100:
             print('Check YFE before optimizing!')
-        optwvfm=pickle.load(open(cls.psfilepath()+'opttrace.p','rb'));
+        optwvfm=pickle.load(open(GLOBAL.PSFILEPATH+'opttrace.p','rb'));
         try:
             oldwvfm=HAWG().ReadPulseHeights();
             HAWG().WritePulseHeights(optwvfm);
@@ -1338,9 +1686,9 @@ class LPL:
             print('Error! Check waveform!')
         GLOBAL.EVRLPLSSEN.put(0);#disable PC before re-opening shutters
         datestamp=int(datetime.now().strftime('%Y%m%d%H%M%S'))
-        SHGlog=pickle.load(open(cls.psfilepath()+'SHG_opt_log.p','rb'))
+        SHGlog=pickle.load(open(GLOBAL.PSFILEPATH+'SHG_opt_log.p','rb'))
         SHGlog.append([datestamp,[newposlist[ii] for ii in range(4)]])
-        efc.pickledump2(SHGlog,cls.psfilepath()+'SHG_opt_log.p')
+        efc.pickledump2(SHGlog,GLOBAL.PSFILEPATH+'SHG_opt_log.p')
         TTL_shutter.Toggle('openall',display=False);#open all the shutters
         MBC.Reset();YFE.SetAll(True);#reset bias...
         plt.ioff()
@@ -1367,24 +1715,66 @@ class efc:
 #       - 
 #       - 
 # =============================================================================
-    def epl(listq):
+    def epl(listq,xlb='none',ylb='none',xlim='none',ylim='none'):
         """Shorthand plotting function for a single list of y-values"""
         df1=plt.figure()
         plt.plot(listq);
+        if xlb != 'none':
+            plt.xlabel(xlb)
+        if ylb != 'none':
+            plt.ylabel(ylb)
+        if xlim != 'none':
+            try:
+                plt.xlim(xlim)
+            except:
+                pass
+        if ylim != 'none':
+            try:
+                plt.ylim(ylim)
+            except:
+                pass
         df1.show()
         return
 
-    def eplxy(listxq,listyq):
+    def eplxy(listxq,listyq,xlb='none',ylb='none',xlim='none',ylim='none'):
         """Shorthand plotting function for a single list of x-values and y-values"""
         df1=plt.figure()
         plt.plot(listxq,listyq);
+        if xlb != 'none':
+            plt.xlabel(xlb)
+        if ylb != 'none':
+            plt.ylabel(ylb)
+        if xlim != 'none':
+            try:
+                plt.xlim(xlim)
+            except:
+                pass
+        if ylim != 'none':
+            try:
+                plt.ylim(ylim)
+            except:
+                pass
         df1.show()
         return
 
-    def eplxyloglog(listxq,listyq):
+    def eplxyloglog(listxq,listyq,xlb='none',ylb='none',xlim='none',ylim='none'):
         """Shorthand plotting function for a single list of x-values and y-values with logrithmic axes in both directions"""
         df1=plt.figure()
         plt.loglog(listxq,listyq);
+        if xlb != 'none':
+            plt.xlabel(xlb)
+        if ylb != 'none':
+            plt.ylabel(ylb)
+        if xlim != 'none':
+            try:
+                plt.xlim(xlim)
+            except:
+                pass
+        if ylim != 'none':
+            try:
+                plt.ylim(ylim)
+            except:
+                pass
         df1.show()
         return
 
@@ -1397,14 +1787,28 @@ class efc:
             plt.close(df1)
         return
         
-    def eplxysav(listxq,listyq,FileNameQ,abs_path=False):
+    def eplxysav(listxq,listyq,FileNameQ,abs_path=False,xlb='none',ylb='none',xlim='none',ylim='none'):
         """Shorthand function for saving a plot of a single list of x-values and y-values"""
         df1=plt.figure()
         plt.plot(listxq,listyq);
         if abs_path:
             figfilename=FileNameQ;
         else:
-            figfilename=str(LPL.psfilepath()+FileNameQ+'.png')
+            figfilename=str(GLOBAL.PSFILEPATH+FileNameQ+'.png')
+        if xlb != 'none':
+            plt.xlabel(xlb)
+        if ylb != 'none':
+            plt.ylabel(ylb)
+        if xlim != 'none':
+            try:
+                plt.xlim(xlim)
+            except:
+                pass
+        if ylim != 'none':
+            try:
+                plt.ylim(ylim)
+            except:
+                pass
         df1.savefig(figfilename)        
         plt.close(df1)
         return
@@ -1419,7 +1823,7 @@ class efc:
 
     def eplcsv(CSVname):
         """Shorthand plotting function for a single list of y-values loaded from a CSV file; hasn't been used for ages"""
-        with open(LPL.psfilepath()+'data/'+CSVname+'.csv','r') as filehead:
+        with open(GLOBAL.PSFILEPATH+'data/'+CSVname+'.csv','r') as filehead:
             RawListQ=filehead.read()
             ListedValues=RawListQ.split('\n')
         efc.epl(ListedValues[:-1])
@@ -1429,7 +1833,7 @@ class efc:
         """Shorthand plotting function for a nested list of four sets of y-values loaded from a CSV file; hasn't been used for ages"""
         ListofListedValues=[]
         for ii in range(1,5):
-            with open(LPL.psfilepath()+'data/'+CSVHeadname+'_ch'+str(ii)+'.csv','r') as filehead:
+            with open(GLOBAL.PSFILEPATH+'data/'+CSVHeadname+'_ch'+str(ii)+'.csv','r') as filehead:
                 RawListQ=filehead.read()
                 ListedValues=RawListQ.split('\n')
             ListofListedValues.append(ListedValues[:-1])
@@ -1438,7 +1842,7 @@ class efc:
 
     def rcsv(CSVname):
         """Shorthand function for reading a list of y-values from a CSV file; hasn't been used for ages"""
-        with open(LPL.psfilepath()+'data/'+CSVname+'.csv','r') as filehead:
+        with open(GLOBAL.PSFILEPATH+'data/'+CSVname+'.csv','r') as filehead:
             RawListQ=filehead.read()
             if '\n' in RawListQ:
                 ListedValues=RawListQ.split('\n')
@@ -1457,7 +1861,7 @@ class efc:
             plt.plot(llist[ii]);
         df1.show()
         
-    def epllxy(llistxyq,xlb='none',ylb='none'):
+    def epllxy(llistxyq,xlb='none',ylb='none',xlim='none',ylim='none'):
         """Shorthand plotting function for a list of multiple lists of x-values and y-values"""
         df1=plt.figure()
         for ii in range(len(llistxyq)):
@@ -1466,18 +1870,43 @@ class efc:
             plt.xlabel(xlb)
         if ylb != 'none':
             plt.ylabel(ylb)
+        if xlim != 'none':
+            try:
+                plt.xlim(xlim)
+            except:
+                pass
+        if ylim != 'none':
+            try:
+                plt.ylim(ylim)
+            except:
+                pass
         df1.show()
         return
 
-    def epllxyloglog(llistxyq):
+    def epllxyloglog(llistxyq,xlb='none',ylb='none',xlim='none',ylim='none'):
         """Shorthand plotting function for a list of multiple lists of x-values and y-values with logrithmic axes in both directions"""
         df1=plt.figure()
         for ii in range(len(llistxyq)):
             plt.loglog(llistxyq[ii][0],llistxyq[ii][1]);
+        if xlb != 'none':
+            plt.xlabel(xlb)
+        if ylb != 'none':
+            plt.ylabel(ylb)
+        if xlim != 'none':
+            try:
+                plt.xlim(xlim)
+            except:
+                pass
+        if ylim != 'none':
+            try:
+                plt.ylim(ylim)
+            except:
+                pass
         df1.show()
         return
 
     def epllt(listq,Map):
+        """Shorthand function for plotting a list of lists projected according to a map; not used much currently"""
         formtra=[]
         for ii in range(len(listq)):
             formtra.append(LPL.TraceFormatting(listq[ii],Map[ii],1, AvgRange=1, FWHM=1))
@@ -1493,7 +1922,8 @@ class efc:
         return
         
     def eplfft(errlistQ,time_stepQ):
-        """Shorthand function for loglog-plotting the normalized power spectrum of the Fourier transform of a waveform, given the temporal spacing of the waveform"""
+        """Shorthand function for loglog-plotting the normalized power spectrum of the Fourier transform of a waveform,
+        given the temporal spacing of the waveform using time_stepQ"""
         #time_step1=0.1
         freqs1=np.fft.fftfreq(np.array(errlistQ).size, time_stepQ)
         idx1=np.argsort(freqs1)
@@ -1504,10 +1934,10 @@ class efc:
         
     def reloadchk():
         """Shorthand sanity check for the current version of the code"""
-        print('Last stamped: 20220204d')
+        print('Last stamped: 20220214a')
         
     def reloadpkg():
-        """Used to be a poor attempt at reloading packages while under development; much easier to use %run IPython commands instead"""
+        """Shorthand way of reloading the meclas package using the %run IPython command"""
         from IPython import get_ipython
         #spec = importlib.util.spec_from_file_location("mecps4", "/reg/neh/operator/mecopr/mecpython/pulseshaping/mecps4.py")
         #mecps4 = importlib.util.module_from_spec(spec)
@@ -1525,8 +1955,12 @@ class efc:
 
     @classmethod
     def cprint(cls,strQ,paramsQ):#delim with commas
-        """Prints to terminal using provided parameters for color, etc.
-        Parameters delimited with commas"""
+        """
+        Prints to terminal using provided parameters for color, etc.
+        Parameters delimited with commas
+        Example: efc.cprint('Warning!','BLINK,BRW,BBRR') prints 'Warning!' in blinking BRight White text on Background BRight Red
+        See efc.cstr() for more details on possible parameters for paramsQ
+        """
         prargs=''
         if len(paramsQ) == 0:
             paramsQ='ENDC'
@@ -1540,10 +1974,13 @@ class efc:
         """
         Prepares a string (i.e. for later printing to terminal) using provided parameters for color, etc.
         Param color choices are 'K','R','G','Y','B','M','C','W'; also available is 'BLINK'
+        (Colors above correspond to blacK, Red, Green, Yellow, Blue, Magenta, Cyan, White)
         Add a 'BR' before each color to specify it to the BRight
         Add a 'B' on the very front to specify the color as Background
-        Example: 'BBRR' is Background BRight Red
-        Example: 'BBRB' is Background BRight Red
+        Example: 'W' is White (text)
+        Example: 'BK' is Background blacK
+        Example: 'BRR' is BRight Red (text)
+        Example: 'BBRB' is Background BRight Blue
         Multiple parameters can be delimited using commas (order does not matter)
         Example: 'BLINK,BRY,BB' is BLINKing BRight Yellow text on Background Blue 
         """
@@ -1552,7 +1989,7 @@ class efc:
             paramsQ='ENDC'
         for eaarg in paramsQ.split(','):
             prargs+=cls.tc()[eaarg.upper()]
-        return f"{prargs}"+strQ+f"{cls.tc()['ENDC']}"
+        return f"{prargs}"+str(strQ)+f"{cls.tc()['ENDC']}"
 
     @staticmethod
     def keybd():
@@ -1574,6 +2011,12 @@ class efc:
         return ch     
 
     def getch_with_TO(TOsec,display=True):
+        """
+        Same as getch() except with a useful timeout period so as to not block a terminal waiting for input
+        Use TOsec to set the time-out window in seconds
+        Use display=True if you want a message printed to terminal that lets the operator know the time-out duration
+        Use display=False to avoid printing a message to terminal telling how many seconds one has to enter a character
+        """
         if display:
             print("You have {} seconds to answer! ".format(str(TOsec)),end='',flush=True)
         fdInput = sys.stdin.fileno()
@@ -1595,7 +2038,13 @@ class efc:
             return False
 
     def input_with_TO(TOsec, display=True):
-        """Similar to input() but includes a user timeout so the window for input doesn't stay open forever and block the terminal"""
+        """
+        Similar to input() but includes a user timeout so the window for input doesn't stay open forever and block the terminal
+        Use TOsec to set the time-out window in seconds
+        Use display=True if you want a message printed to terminal that lets the operator know the time-out duration
+        Use display=False to avoid printing a message to terminal telling how many seconds one has to enter input
+
+        """
         if display:
             print("You have {} second{} to answer! ".format(str(TOsec), '' if TOsec==1 else 's'),end='',flush=True)
         i, o, e = select.select( [sys.stdin], [], [], TOsec)
@@ -1611,6 +2060,11 @@ class efc:
         os.chmod(fullFileNameQ,stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IWGRP|stat.S_IROTH|stat.S_IWOTH);#
         #os.chmod(fullFileNameQ,stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO);#
         return
+
+    def pickleload2(fullFileNameQ):
+        """Shortcut for loading pickle files without having to type the open command"""
+        return pickle.load(open(fullFileNameQ,'rb'));
+
     
     def dotsleep(tSEC):
         """Similar to time.sleep() but also prints a . character every second for the entire duration, finishing with a * character"""
@@ -1678,6 +2132,10 @@ class efc:
 # =============================================================================
     
     def rPV(yourPV):
+        """
+        Convenient short-hand way to read out and return the value from a PV
+        Input yourPV needs to be formatted as a string
+        """
         try:
             temppv=EpicsSignal(yourPV);
             tempval=temppv.get()
@@ -1687,6 +2145,11 @@ class efc:
             return False
         
     def wPV(yourPV, yourVal):
+        """
+        Convenient short-hand way to write a value to a PV
+        Input yourPV needs to be formatted as a string
+        Input yourVal needs to fit the type (e.g. string vs number, etc.) expected by yourPV
+        """
         try:
             temppv=EpicsSignal(yourPV);
             temppv.put(yourVal)
@@ -1824,15 +2287,27 @@ class efc:
 
 
 class HAWG:
-    """Class containing all the necessary functions for running the Highland Arbitrary Waveform Generator for LPL pulse shaping"""
+    """
+    Class containing all the necessary functions for running the Highland Arbitrary Waveform Generator for LPL pulse shaping
+    
+    Unless speed is necessary, it is usually most appropriate to interface with the Highland simply by using HAWG().[command].
+    This will take care of all of the socket opening/closing by itself.
+    Example: read out the current Highland waveform using HAWG().ReadPulseHeights()
+    Example: reset the Highland using HAWG().Reset()
+    
+    Most of these functions are for expert use only, so please be careful with them!
+    """
     def __init__(self):
         """Initializes the object; only one should be instantiated at a time"""
         self._HighlandSocket=None
         self._HIGHLAND_SLAVE_ADDRESS=0 #arbitrary, I think    
 
     def _Open(self):
-        """Takes care of opening the socket to the Highland; if called explicitly like this, it MUST be followed by a Close()
-        statement or else you'll block the socket and need to power cycle the unit"""
+        """
+        Takes care of opening the socket to the Highland; if called explicitly like this, it MUST be followed by a _Close()
+            statement or else you'll block the socket and need to power cycle the unit using HAWG().Reset()
+            
+        """
         if not self._HighlandSocket:
             try:
                 self._HighlandSocket=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1845,7 +2320,7 @@ class HAWG:
             print('Socket may already be open!')
 
     def _Close(self):
-        """Takes care of closing the socket to the Highland"""
+        """Takes care of closing the socket to the Highland if first explicitly opened using _Open()"""
         try:
             self._HighlandSocket.close()
             self._HighlandSocket=None
@@ -2790,7 +3265,12 @@ class HAWG:
 # =============================================================================
     
     def FidOn(self,amplitude=20000,delay_ps=45125):
-        """Shortcut function for turning on the Highland's fiducial impulse used for proper timing of the oscilloscope delay"""
+        """
+        Shortcut function for turning on the Highland's fiducial impulse used for proper timing of the oscilloscope delay
+        If necessary, non-standard values can be passed into the function using
+        amplitude (usu. ~20000, depending on energy saturation in YFE; range 0-65000) and
+        delay_ps (usu. 45125 to be in correct location, but can be scanned to help e.g. calibrate a streak camera)
+        """
         try:
             self.WriteFiducialImpulseSettings(amplitude,delay_ps);
         except:
@@ -2810,14 +3290,45 @@ class HAWG:
     
 
 class LOSC:
-    """Class containing all the necessary functions for running the LeCroy oscilloscopes
-    Because we have several such scopes, instantiation of a certain device is required"""
+    """
+    Class containing all the necessary functions for running the LeCroy oscilloscopes
+    Because we have several such scopes, instantiation of a certain device is required
+    Possible scope choices are:
+    my_scope=LOSC('A') #for the YFE, 1in1w, and SHG_opt diodes
+    my_scope=LOSC('B') #for the four 2in1w diodes
+    my_scope=LOSC('1') #for the instruments scientists' oscilloscope
+    my_scope=LOSC('2') #for the four 2in2w diodes
+    
+    Unless speed is necessary, it is usually most appropriate to interface with a LeCroy simply by using LOSC('[1/2/A/B]').[command]
+    This will take care of all of the socket opening/closing by itself.
+    Example: read out all the current waveform amplitudes on scope '2' using wvfm4=LOSC('2').rchall()
+    Example: wait for a fresh acquisition before reading out channel 2's voltage vs time on scope '1' using ch2_wvfm=LOSC('1').waitrchxy(2)
+    
+    Possible commands that can be used as described above include:
+        :waitrch #wait and read specified channel amplitude
+        :waitrchxy #wait and read specified channel amplitude and time
+        :rch #immediately read specified channel amplitude
+        :rchxy #immediately read specified channel amplitude and time
+        :rchall #immediately read amplitude for all channels
+        :rchallxy #immediately read amplitude and time for all channels
+        :sch #save plot of specified channel amplitude to file
+        :schall #save plot of amplitude for all channels to file
+        :pch #plot specified channel amplitude
+        :pchxy #plot specified channel amplitude vs time
+        :pchall #plot amplitude of all channels
+        :pchallxy #plot amplitude vs time of all channels
+        :sumch #sum apmlitude of specified channel
+        :save_scope_to_eLog #save specified channel amplitude to eLog
+    See their docstrings for more details 
+    """
     def __init__(self, LStrQ):
-        """Initialize a LeCroy oscilloscope for use; possible choices are:
-            LStrQ='A' #for the YFE, 1in1w, and SHG_opt diodes
-            LStrQ='B' #for the four 2in1w diodes
-            LStrQ='1' #for the instruments scientists' oscilloscope
-            LStrQ='2' #for the four 2in2w diodes"""
+        """
+        Initialize a LeCroy oscilloscope for use; possible choices are:
+        LStrQ='A' #for the YFE, 1in1w, and SHG_opt diodes
+        LStrQ='B' #for the four 2in1w diodes
+        LStrQ='1' #for the instruments scientists' oscilloscope
+        LStrQ='2' #for the four 2in2w diodes
+        """
         if   str(LStrQ).lower() == 'a':
             self._hostIP = '172.21.46.100'#'scope-ics-meclas-lecroy-a'
             self._name = 'LeCroyA'
@@ -2837,7 +3348,11 @@ class LOSC:
         self._port = 1861
 
     def _Open(self):
-        """Takes care of opening the socket to the specified LeCroy; if called explicitly like this, it MUST be followed by a Close() statement or else you'll block the socket and need to locally disable/enable its networking card or power cycle the unit"""
+        """
+        Takes care of opening the socket to the specified LeCroy; if called explicitly like this, 
+        it MUST be followed by a _Close() statement or else you'll block the socket and need to 
+        locally disable/enable its networking card (or power cycle the unit, but this is not preferred!!)
+        """
         if not self._LSock:
             try:
                 self._LSock=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -2849,7 +3364,7 @@ class LOSC:
             print('Socket may already be open!')
 
     def _Close(self):
-        """Takes care of closing the socket to the specified LeCroy"""
+        """Takes care of closing the socket to the specified LeCroy if preceded by an _Open() statement"""
         try:
             self._LSock.close()
             self._LSock=None
@@ -3102,10 +3617,10 @@ class LOSC:
         """
         rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL".format(OChan))
         parseddataq=self._parsewf(rawdataq, False)
-        with open(LPL.psfilepath()+'data/'+str(FileName)+'.csv','w',newline='') as f:
+        with open(GLOBAL.PSFILEPATH+'data/'+str(FileName)+'.csv','w',newline='') as f:
             writer=csv.writer(f, delimiter='\n')
             writer.writerow(parseddataq['DATA'])
-        with open(LPL.psfilepath()+'data/'+str(FileName)+'-h.csv','w',newline='') as f:
+        with open(GLOBAL.PSFILEPATH+'data/'+str(FileName)+'-h.csv','w',newline='') as f:
             writer=csv.DictWriter(f, parseddataq.keys())
             writer.writeheader()
             writer.writerow(parseddataq)
@@ -3236,7 +3751,7 @@ class LOSC:
             except:
                 print('Failed to create '+fpQ+'!')
         try:
-            mecel = elog.ELog({'experiment':ExpName},user='mecopr',pw=pickle.load(open(LPL.psfilepath()+'elogauth.p','rb')))
+            mecel = elog.ELog({'experiment':ExpName},user='mecopr',pw=pickle.load(open(GLOBAL.PSFILEPATH+'elogauth.p','rb')))
             #print('Connected to eLog of current MEC experiment, which is: '+ExpName)
         except:
             print('Failed to connect to eLog!')
@@ -3278,6 +3793,11 @@ class LOSC:
 class EMeters:
     """Class containing readout functions for energy meters on all MEC laser systems"""
     def LPLInChamber(printDisplay=False):
+        """
+        Returns energy values for in-chamber LPL Gentec meters
+        printDisplay=True means the values will be printed to terminal in addition to being returned in an array
+        printDisplay=False means the values will not be printed to terminal while still being returned in an array
+        """
         tvalW=GLOBAL.EGLPLWest.get();
         tvalE=GLOBAL.EGLPLEast.get();
         if printDisplay:
@@ -3286,6 +3806,10 @@ class EMeters:
 
                   
     def EG():
+        """
+        Gathers all the energy meter readouts for the 2in2w outputs and scales them appropriately
+        Returns an array containing an array of the guessed values and an array of the in-chamber measured values
+        """
         eab=GLOBAL.EGLPL2in2wAB.get()
         eef=GLOBAL.EGLPL2in2wEF.get()
         egh=GLOBAL.EGLPL2in2wGH.get()
@@ -3311,6 +3835,10 @@ class EMeters:
         return [guessarray,realarray]
         
     def EG1wYFE1in():
+        """
+        Gathers the energy meter readouts for the YFE and 1in outputs and scales them appropriately
+        Returns an array containing the guess for each
+        """
         eyfe=GLOBAL.EGLPLYFE.get()
         e1in=GLOBAL.EGLPL1in1w.get()
         EYFE,E1IN=GLOBAL.EcoeffYFE.get()*eyfe,GLOBAL.Ecoeff1in1wCD.get()*e1in#was 0.3578
@@ -3324,6 +3852,10 @@ class EMeters:
         return guessarray
 
     def EG1w2in():
+        """
+        Gathers all the energy meter readouts for the 2in1w outputs and scales them appropriately
+        Returns an array containing the guessed values of each
+        """
         eab=GLOBAL.EGLPL2in1wAB.get()
         eef=GLOBAL.EGLPL2in1wEF.get()
         egh=GLOBAL.EGLPL2in1wGH.get()
@@ -3342,12 +3874,23 @@ class EMeters:
         return guessarray
 
                   
-    def EGall(return_txt=False,chamber_meter_in=False):
+    def EGall(return_txt=False,chamber_meter_in=False, return_energy_only=False):
+        """
+        Gathers all the energy meter outputs from EG1eYFE1in(), EG1w2in(), and EG()
+        Use return_text=True to return the energy report as a string
+        Use return_text=False to return the numerical energies in an array instead
+        Use chamber_meter_in=True to add a line in the print-out about the in-chamber LPL energy read-outs
+        Use chamber_meter_in=False to suppress a line in the print-out about the in-chamber LPL energy read-outs
+        Use return_energy_only=True to return ONLY the numerical energies in an array -- no terminal printing, no message
+        Use return_energy_only=False to allow for the terminal printing and the message return (if return_text=True)
+        """
         [en1wYFE, en1w1in] = EMeters.EG1wYFE1in()
         [en1wAB, en1wEF, en1wGH, en1wIJ] = EMeters.EG1w2in()[0]
         [en2wAB, en2wEF, en2wGH, en2wIJ] = EMeters.EG()[0][0]
         [enWEST, enEAST]=EMeters.EG()[1][:2]
         [cAB,cEF,cGH,cIJ]=PFN.HeadENB()
+        if return_energy_only:
+            return [en1wYFE, en1w1in, cAB*en1wAB, cEF*en1wEF, cGH*en1wGH, cIJ*en1wIJ, cAB*en2wAB, cEF*en2wEF, cGH*en2wGH, cIJ*en2wIJ]
         ###
         wppvlist=[GLOBAL.HWPAB, GLOBAL.HWPEF, GLOBAL.HWPGH, GLOBAL.HWPIJ];
         headstr='';wpstr='';headlist=['AB','EF','GH','IJ'];
@@ -3392,6 +3935,11 @@ class EMeters:
         return [en1wYFE, en1w1in, cAB*en1wAB, cEF*en1wEF, cGH*en1wGH, cIJ*en1wIJ, cAB*en2wAB, cEF*en2wEF, cGH*en2wGH, cIJ*en2wIJ]
 
     def SPLEG():
+        """ 
+        returns the scaled energy meter read-outs of the shot-pulse laser
+        energy array output in order of [regen, TOPAS, MPA1, MPA2]
+        (currently not widely used due to sampling percentage variability due to changing ambient conditions)
+        """
         #later add in GLOBALS.EREGEN .ETOPAS .EMPA1 .EMPA2
         reen=GLOBAL.EGSPLRE.get() 
         toen=GLOBAL.EGSPLTO.get() 
@@ -3405,6 +3953,9 @@ class EMeters:
 
                   
     def gentec_refresh():
+        """ 
+        Shorthand way of resetting all the desired input parameters of several different Gentec meters (mostly for 2in beams)
+        """
         pvhead='MEC:LAS:GENTEC:';pvtails=['DESCRIPTION','SET_WAVLEN','SET_SCALE','SET_TRIGMODE','SET_TRIGLVL','SET_ATTENUATOR'];#'SET_SCALE' was 'SCALE'
         pvids=['02:CH1:','02:CH2:','01:CH1:','01:CH2:','03:CH1:','03:CH2:','04:CH1:','04:CH2:'];
         abirvals=['AB IRsamp',1053,24,1,2,0]#24 was '1' with 'SCALE'
@@ -3431,6 +3982,7 @@ class EMeters:
                 temppv.put(valx)       
 
     def E_coeff_refresh():
+        """Resets E_coefficients in notepad PVs"""
         GLOBAL.notepadPVreset()
         #pvlist=['MEC:LAS:FLOAT:'+str(ii) for ii in range(31,41)];
         #inddesclist=['YFE','CD1w','AB1w','EF1w','GH1w','IJ1w','AB2w','EF2w','GH2w','IJ2w']
@@ -3442,6 +3994,7 @@ class EMeters:
 
                   
     def E_synth_refresh():
+        """Updates the synthetic energy guesses (based on energy readouts) stored in notepad PVs"""
         pvlist=['MEC:LAS:FLOAT:'+str(ii).zfill(2) for ii in range(1,11)];
         inddesclist=['YFE','CD1w','AB1w','EF1w','GH1w','IJ1w','AB2w','EF2w','GH2w','IJ2w']
         desclist=['E_synth_'+inddesc for inddesc in inddesclist]
@@ -3474,17 +4027,33 @@ class EMeters:
 #        for jj in range(len(pvlist2)):
 #            temppv1=EpicsSignal(str(pvlist2[jj]+'.DESC'));temppv2=EpicsSignal(pvlist2[jj]);
 #            temppv1.put(desclist2[jj]);temppv2.put(valulist2[jj]);
-        print('Add in SPL meters later')
+        #Add in SPL meters later'
+        return
 
 
 
 
                   
 class MBC:
+    """
+    Class for controlling different functions of the MBC bias control box used with the LPL front-end seed laser
+    These functions are meant mostly for laser experts.
+    Usage can simply proceed via MBC.[command]
+    Potential commands include:
+        :ModeCheck()
+        :IsSafe()
+        :Reset()
+    Check docstrings of individual functions for more details
+    """
     def ModeCheck():
+        """Returns the current mode of the MBC, either 0 (AUTO) or 1 (MANUAL)"""
         return GLOBAL.MBCmode.get()
 
     def IsSafe():#re-write checks as individual functions
+        """
+        Verifies that MBC is operating safely -- powered on, in AUTO/MIN mode, not out of voltage range, no fault detected
+        Returns True if all systems nominal, returns False if something was amiss
+        """
         status = True
         print('Checking MBC status...')
         if GLOBAL.MBCpwr.get() != 1:
@@ -3518,6 +4087,9 @@ class MBC:
             return False
 
     def Reset():
+        """
+        Resets the bias control box to make sure it is working properly
+        """
         YFE.SetAll(False);
         #add KeyboardInterrupt?
         print('Begin resetting the MBC...')
@@ -3578,8 +4150,26 @@ class MBC:
 
 
 class YFE:
-    """Class for organizing functions associated with the YLF Front End (YFE) laser system"""
+    """
+    Class for organizing functions associated with the YLF Front End (YFE) laser system
+    Usage can simply proceed via YFE.[command]
+    Potential commands include:
+        :OnCheck() #checks whether YFE is on or off
+        :On() #initiates turn-on sequence
+        :Off() #initiates shut-off sequence
+        :Get() #retrieves eDrive current sepoints and RBVs
+        :Set(mmQ,currQ) #changes current setpoint corresponding to certain rod diameters
+        :SetAll(IOBool) #turns on or off all eDrive currents without turning off emission
+        :Trace() #plots oscilloscope trace of YFE output
+    Check docstrings of individual functions for more details
+    """
     def OnCheck(display=True):
+        """
+        Checks whether YFE is turned on or off
+        If turned off, returns False; if turned on, returns True
+        Use display=True to print current YFE status to terminal
+        Use display=False to avoid printing current YFE status to terminal
+        """
         YFEadd='MEC:LPL:LCO:0'
         YFEamp=['2','3','5','6','1','4']
         YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL',':ClearFault']
@@ -3600,6 +4190,11 @@ class YFE:
 
     @classmethod
     def On(cls,CtrlChk=True):
+        """
+        Initiates turn-on procedure for YFE laser system, including several preliminary equipment checks
+        Use CtrlChk=True to check the LPL control system (pertinent hosts, IOCs, PVs, etc.) as part of the turn-on procedure
+        Use CtrlChk=False to avoid check the LPL control system as part of the turn-on procedure
+        """
         if YFE.OnCheck(display=False):
             print('YFE emission already enabled.');return
         if GLOBAL.LPLPCpwr.get() != 1:
@@ -3619,7 +4214,7 @@ class YFE:
             print('YFE fault state detected! Trying to reset...')
             for faultpv in faultpvlist:
                 faultpv.put(1)
-            time.sleep(3)
+            time.sleep(5)#3 sec seems to be too short sometimes for it to clear
             faultstatlist=[faultpv.get() for faultpv in faultpvlist]
             if any(faultstatlist):
                 print('YFE fault state still detected, turn-on failed.')
@@ -3641,7 +4236,7 @@ class YFE:
             cls.SetAll(False,displayQ=False)
             print('MBC not configured properly!')
             MBC.Reset()
-            cls.On();
+            cls.On(CtrlChk=False);
         else: #later add check to avoid over-energizing by reading power meter
             for ii in range(len(YFEamp)):
                 tempsetcurrpv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[1])
@@ -3668,6 +4263,9 @@ class YFE:
         return True
 
     def Off():
+        """
+        Initiates turn-off procedure for YFE laser system
+        """
         GLOBAL.LPLPCpwr.put(2)
         GLOBAL.LPLVACpwr.put(2)
         GLOBAL.LPLPS1pwr.put(2)
@@ -3685,6 +4283,11 @@ class YFE:
         return
         
     def Get(display=True):
+        """
+        Retrieves eDrive current sepoints and RBVs for all six diode-pumped heads within the YFE
+        Use display=True to print the requested and actual eDrive currents to terminal
+        Use display=False to avoid printing the requested and actual eDrive currents to terminal
+        """
         YFEadd='MEC:LPL:LCO:0'
         YFEamp=['2','3','5','6','1','4']
         YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL']
@@ -3701,6 +4304,14 @@ class YFE:
         return currreqQ
 
     def Set(mmQ,currQ,display=True):
+        """
+        Changes current setpoint corresponding to certain rod diameters mmQ
+        Choices for rod diameters mmQ are 2, 6, or 10
+        Current limits for currQ are 88, 135, and 140, respectively
+        Nominal values for currQ are 85, 130, and 124, respectively
+        Use display=True to print message to terminal of what values were changed
+        Use display=False to avoid writing such a message to terminal
+        """
         YFEadd='MEC:LPL:LCO:0'
         YFEamp=['2','3','5','6','1','4']
         YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL']
@@ -3745,6 +4356,15 @@ class YFE:
 
     @classmethod
     def SetAll(cls,IOBool,displayQ=False):
+        """
+        Shorthand way of adjusting all eDrive currents to nominal setpoints all together
+        Use IOBool=True to turn all eDrives up to their nominal active setpoint
+            :(reminder: 2mm --> 85A, 6mm --> 130A, 10mm --> 124A)
+        Use IOBool=False to turn all eDrives down to zero without turning off the emission
+            :(very convenient when resetting the MBC, for example; takes much less time than turning off and on eDrive emission)
+        Use displayQ=True to print out current setpoint and RBV after pushing changes to setpoints
+        Use displayQ=False to avoid printing out any such message to terminal
+        """
         YFEadd='MEC:LPL:LCO:0'
         YFEamp=['2','3','5','6','1','4']
         YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL']
@@ -3768,6 +4388,9 @@ class YFE:
         return
 
     def Trace():
+        """
+        Plots the voltages of the diode trace for the YFE output waveform
+        """
         try:
             LOSC('a').pch(1)
         except:
@@ -3970,7 +4593,7 @@ class HWP:
         GLOBAL.MBCmode.put(1)#set MAN mode on MBC
         if np.sum(YFE.Get(display=False)) < 100:
             print('Check YFE before optimizing!')
-        optwvfm=pickle.load(open(LPL.psfilepath()+'opttrace.p','rb'));
+        optwvfm=pickle.load(open(GLOBAL.PSFILEPATH+'opttrace.p','rb'));
         try:
             oldwvfm=HAWG().ReadPulseHeights();
             HAWG().WritePulseHeights(optwvfm);
@@ -4070,9 +4693,9 @@ class HWP:
             print('Error! Check waveform!')
         GLOBAL.EVRLPLSSEN.put(0);#disable PC before re-opening shutters
         datestamp=int(datetime.now().strftime('%Y%m%d%H%M%S'))
-        HWPlog=pickle.load(open(LPL.psfilepath()+'HWP_opt_log.p','rb'))
+        HWPlog=pickle.load(open(GLOBAL.PSFILEPATH+'HWP_opt_log.p','rb'))
         HWPlog.append([datestamp,[newposlist[ii] for ii in range(4)]])
-        efc.pickledump2(HWPlog,LPL.psfilepath()+'HWP_opt_log.p')
+        efc.pickledump2(HWPlog,GLOBAL.PSFILEPATH+'HWP_opt_log.p')
         TTL_shutter.Toggle('openall',display=False);#open all the shutters
         MBC.Reset();YFE.SetAll(True);#reset bias...
         plt.ioff()
@@ -4854,9 +5477,9 @@ class CtrlSys:
     @classmethod
     def pv_checker(cls,las='lpl'):
         if las.lower() == 'lpl':
-            qqpl=np.genfromtxt(LPL.psfilepath()+'_ps_pvlist_lpl.txt',delimiter='\n',dtype=str);pvmsg=[];
+            qqpl=np.genfromtxt(GLOBAL.PSFILEPATH+'_ps_pvlist_lpl.txt',delimiter='\n',dtype=str);pvmsg=[];
         elif las.lower() == 'spl':
-            qqpl=np.genfromtxt(LPL.psfilepath()+'_ps_pvlist_spl.txt',delimiter='\n',dtype=str);pvmsg=[];
+            qqpl=np.genfromtxt(GLOBAL.PSFILEPATH+'_ps_pvlist_spl.txt',delimiter='\n',dtype=str);pvmsg=[];
         else:
             print('No such laser!');return
         for eapv in qqpl:
@@ -4961,20 +5584,6 @@ class GLOBAL:
     Ecoeff2in2wGH=EpicsSignal('MEC:LAS:FLOAT:39')
     Ecoeff2in2wIJ=EpicsSignal('MEC:LAS:FLOAT:40')
     #(w/y/s1in1w/s42in1w/s42in2w/s + DateStr/today, RunNum, RunFilePath, PulseEnergies; notepadPVs: HAWG; YFE; 1w,2w,etc.; recipe  better than pickle?)
-    #MEC:LAS:ARRAY:01, Desc: loaded pulse segment lengths, len: 10
-    #MEC:LAS:ARRAY:02, Desc: loaded pulse segment endpoints, len: 1
-    #MEC:LAS:ARRAY:03, Desc: Highland grafana, len: 1
-    #MEC:LAS:ARRAY:04, Desc: YFE grafana, len: 1
-    #MEC:LAS:ARRAY:05, Desc: YFEgoal grafana, len: 1
-    #MEC:LAS:ARRAY:06, Desc: 1in1w grafana, len: 1
-    #MEC:LAS:ARRAY:07, Desc: 2in1w grafana, len: 1
-    #MEC:LAS:ARRAY:08, Desc: 2in2w grafana, len: 1
-    #MEC:LAS:ARRAY:09, Desc: 2in2wgoal grafana, len: 1
-    #MEC:LAS:ARRAY:10, Desc: Spare grafana, len: 1
-    #MEC:LAS:ARRAY:11, Desc: Grafana, len: 1
-    #MEC:LAS:ARRAY:12, Desc: Grafana, len: 1
-    #MEC:LAS:ARRAY:13, Desc: Grafana, len: 1
-    #MEC:LAS:ARRAY:14, Desc: Grafana, len: 1
 
     
     EcoeffRE1 = 1.64e5
@@ -4996,6 +5605,8 @@ class GLOBAL:
     WVFM2IN1w=EpicsSignal('MEC:LAS:ARRAY:07')
     WVFM2IN2w=EpicsSignal('MEC:LAS:ARRAY:08')
     WVFM2IN2wGOAL=EpicsSignal('MEC:LAS:ARRAY:09')
+    YSSS=EpicsSignal('MEC:LAS:ARRAY:10')
+
     
     
     
@@ -5092,8 +5703,8 @@ class GLOBAL:
     OKHOSTS=['mec-monitor', 'mec-daq', 'mec-laser']
     OKUSERS=['mecopr']
 
-    LMapAB=[5,100]
-    LMap2=[50,1000]
+    LMapAB=[5,100] #Pixel mapping from LeCroyA and LeCroyB horizontal axis (1002px) to Highland (140px)
+    LMap2=[50,1000] #Pixel mapping from LeCroy2 horizontal axis (10002px) to Highland (140px)
     pwttfmap=[25,500]
     PSFILEPATH='/reg/neh/operator/mecopr/mecpython/pulseshaping/'
     
@@ -5161,11 +5772,11 @@ class GLOBAL:
         efc.wPV('MEC:LAS:ARRAY:07', '2in1w Grafana:140')
         efc.wPV('MEC:LAS:ARRAY:08', '2in2w Grafana:140')
         efc.wPV('MEC:LAS:ARRAY:09', '2in2wgoal Grafana:140')
-        efc.wPV('MEC:LAS:ARRAY:10', 'Spare Grafana')
-        efc.wPV('MEC:LAS:ARRAY:11', 'Spare Grafana')
-        efc.wPV('MEC:LAS:ARRAY:12', 'Spare Grafana')
-        efc.wPV('MEC:LAS:ARRAY:13', 'Spare Grafana')
-        efc.wPV('MEC:LAS:ARRAY:14', 'Spare Grafana')
+        efc.wPV('MEC:LAS:ARRAY:10', 'YSSs pulse segment endpoint pairs:20(1000)')
+        efc.wPV('MEC:LAS:ARRAY:11', 'Spare Grafana:1000')
+        efc.wPV('MEC:LAS:ARRAY:12', 'Spare Grafana:1000')
+        efc.wPV('MEC:LAS:ARRAY:13', 'Spare Grafana:1000')
+        efc.wPV('MEC:LAS:ARRAY:14', 'Spare Grafana:1000')
         
 
 
