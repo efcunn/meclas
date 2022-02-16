@@ -75,30 +75,29 @@ class LPL:
         LinearWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002)
         ParabolicWave2(Edge1PixNo,Edge1Height,MidPixNo,MidHeight,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002)
         ExponentialWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002)
-    """
-# =============================================================================
-#       potential future work
-#       - put all the stuff Galtier wants to do inside lpl
-#           - LPL.On() instead of YFE.On()
-#           - same for seeing shapes, changing energy, etc.
-#           - help avoid TAB-complete problems because of object instantiation
-#               - like LOSC('a'), for example
-#       - change names to be lowercases so Galtier can TAB-complete easier
-#       - add underscores to methods not generally intended for non-expert usage
-#       - consider consolidating some functions into one
-#           - e.g. LinearWave, ExponentialWave, etc.
-#       - add Deconvolution function -- help shape, seems that 100ps length also affected
-#       - save PFN voltages on-shot too
-#       - Scope vertical resolution problem -- casting somewhere?
-#       - Slow feedback to 10Hz pulse goal based on full shot rbv? Esp to help front edge problems?
-#           - Need this combined with SCALLOPS? Need a fit function to data for the full rbv?
-#       - YSSs: YFE equivalent of SSs
-#           - Steal a notepad pv array
-#       - EW2(Psns, YSSs)
-#       - Have a version of pulsegoal but 10hz using ew2 to interpolate instead of lw, still have dellist
-#       - 
-#       - 
-# =============================================================================
+    potential future work
+       - put all the stuff Galtier wants to do inside lpl
+           - LPL.On() instead of YFE.On(), e.g.
+           - same for seeing shapes, changing energy, etc.
+           - help avoid TAB-complete problems because of object instantiation
+               - like LOSC('a'), for example
+       - change names to be lowercases so Galtier can TAB-complete easier
+       - add underscores to methods not generally intended for non-expert usage
+       - consider consolidating some functions into one
+           - e.g. LinearWave, ExponentialWave, etc.
+       - add Deconvolution function -- help shape, seems that 100ps length also affected
+           - account for the instrument response of the PD, amp, scope, etc. in determining a detected waveform
+       - save PFN voltages on-shot too?
+       - Scope vertical resolution problem -- casting somewhere? better to motorize characterized ND filters...
+       - Slow feedback to 10Hz pulse goal based on full shot rbv? Esp to help front edge problems?
+           - Need this combined with SCALLOPS? Need a fit function to data for the full rbv?
+       - YSSs: YFE equivalent of SSs
+           - Steal a notepad pv array
+       - EW2(Psns, YSSs)
+       - Have a version of pulsegoal but 10hz using ew2 to interpolate instead of lw, still have dellist
+       - SmartPulseGoal10Hz using output of SCALLOPS
+       """
+       
     def LinearWave(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height):
         """
         Generates hex string-formatted linearly-interpolated waveform of 
@@ -289,6 +288,45 @@ class LPL:
                 outwvfm+=cls.ExponentialWave2(Edge1PixNo=YPsnsPairs[ii][0],Edge1Height=YSSs[ii][0],
                                           Edge2PixNo=YPsnsPairs[ii][1],Edge2Height=YSSs[ii][1],offsetQ=offsetQ,arraylenQ=5002)
             return outwvfm
+        except:
+            print('Failed to generate waveform!')
+            return False
+        
+    def EW2string(cls,Psns=0,SSs=0,YSSs=0,offsetQ=0):
+        """
+        Shorthand for generating most common ExponentialWave2 output (or even combination of several ExponentialWave2 outputs) as string for hint
+        
+        Preferred use is to use LPL.Psns_set(), LPL.SSs_set(), and LPL.YSSs_set() for EW2 to find and use
+        
+        When using Psns=0 / SSs=0 / YSSs=0: Psns, SSs, and YSSs all are loaded with the corresponding ***_get() commands
+        
+        Alternatively they can be specified explicitly, i.e. Psns=[10.25], SSs=[[98,100]], YSSs=[[.02,.114]]
+        
+        Compared to ExponentialWave2, EW2:
+            :can combine several summed ExponentialWave2 outputs into one convenient function
+                :Example: EW2(Psns=[5,5.25],SSs=[[49,50],[98,100]],YSSs=[[.01,.03],[.055,.16]]) is equivalent to
+                 ExponentialWave2(500,.01,1000,.03,0,5002)+ExponentialWave2(1000,.055,1525,.16,0,5002)
+            :infers Edge1PixNo and Edge2PixNo of each ExponentialWave2 segment from Psns and SSs
+            :specifies Edge1Height and Edge2Height of each ExponentialWave2 segment using YSSs
+            :still permits offset specification using offsetQ, if desired
+            :automatically uses the standard arraylenQ of 5002
+        """
+        if Psns==0:
+            Psns=cls.Psns_get()
+        if SSs==0:
+            SSs=cls.SSs_get()
+        if YSSs==0:
+            YSSs=cls.YSSs_get()
+        if len(Psns) != len(YSSs):
+            print('Lengths of Psns ({}) and YSSs ({}) do not match! Exiting...'.format(len(Psns),len(YSSs)))
+            return False
+        outwvfm=''
+        YPsns=np.cumsum([0]+[Psns[ii]-0.25*(1 if SSs[ii][1] == SSs[ii+1][0] else 0) for ii in range(len(Psns)-1)] + [Psns[-1]])
+        YPsnsPairs=[[500+YPsns[ii]*100, 500+YPsns[ii+1]*100] for ii in range(len(YPsns)-1)]
+        try:
+            for ii in range(len(YSSs)):
+                outwvfm+='ExponentialWave2({},{},{},{},0,5002)+'.format(YPsnsPairs[ii][0],YSSs[ii][0],YPsnsPairs[ii][1],YSSs[ii][1])
+            return outwvfm[:-1]
         except:
             print('Failed to generate waveform!')
             return False
@@ -533,18 +571,6 @@ class LPL:
             print('Unexpected shape! Failed to write new YSSs values!')
             return False
             
-# =============================================================================
-#     @classmethod
-#     def PulseGoal10Hz(cls):
-#         """One day this will make it easier to use psefc10Hz and psrefrwvfm by making the specification of 'pwt=' less cryptic"""
-#         pass
-#     
-#     @classmethod
-#     def SmartPulseGoal10Hz(cls):
-#         """One day this will help determine the 10Hz PulseGoal using input from the SCALLOPS class"""
-#         pass
-# =============================================================================
-
     @classmethod
     def PulseMax(cls,DurationListQ,StartStopListQ,zzJQ):
         """Gets amplitude setting for segmented, arbitrary PulseGoal using Duration and Start/Stop lists and targeted energy"""
@@ -615,12 +641,6 @@ class LPL:
         PGlistwvfm=[0]*20 + list(cls.PulseGoal(DurationListQ=Psns,StartStopListQ=SSs)) + [0]*40
         PGwvfm = np.array(PGlistwvfm) * (zzJQ)/(np.sum(PGlistwvfm)) / (50e-9 / len(PGlistwvfm))
         return (np.linspace(-5,45,len(PGwvfm)),PGwvfm)
-    
-# =============================================================================
-#     def Deconv():
-#         """One day this will account for the instrument response of the PD, amp, scope, etc. in determining a detected waveform"""
-#         pass
-# =============================================================================
         
     def pshostcheck():
         """
@@ -911,6 +931,7 @@ class LPL:
         Use the left plot for monitoring performance, use the right plot to watch for convergence/etc.
         (This function is the underlying workhorse of the psrefrwvfm function)
         pwt is the pulse waveform target, most often ExponentialWave2(...) or the like
+        If pwt is zero then it is assumed that pwt is provided by EW2(Psns_get(), SSs_get(), YSSs_get(), offsetQ=0)
         numIterQ is the number of iterations used in the convergence loop
         AQQ is the step size used in each iteration of the convergence loop; value should be kept <<1 (usu. 0.03-0.2)
         displayPlot allows one to suppress the plots described above (=False) or allow them to be displayed (=True)
@@ -939,6 +960,8 @@ class LPL:
                 print('No? Enjoy your energy and shape fluctuations then, I guess... :/')
         Psns=GLOBAL.PSNS.get()#pickle.load(open(psfpQ+'Psns.p','rb'))
         SSs=[GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(Psns))]#pickle.load(open(psfpQ+'SSs.p','rb'))
+        if pwt == 0: #if pwt=0 then assume pwt specified by EW2
+            pwt = cls.EW2(Psns=cls.Psns_get(), SSs=cls.SSs_get(), YSSs=cls.YSSs_get(), offsetQ=0)
         pwtF=np.array(cls.TraceFormatting(pwt,GLOBAL.pwttfmap,1,AvgRange=1,FWHM=1))
         GLOBAL.WVFMYFEGOAL.put(pwtF)
 
@@ -1113,6 +1136,15 @@ class LPL:
         if not isinstance(WvGoal10HzHint, str):
             print('Warning: WvGoal10HzHint must be a string. Please put quotes around your shaping hint and try again!')
             return False
+        if PsnsQ == 0:
+            PsnsQ=GLOBAL.PSNS.get()#pickle.load(open(psfpQ+'Psns.p','rb'))
+        if SSsQ == 0:
+            SSsQ=[GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(PsnsQ))]#pickle.load(open(psfpQ+'SSs.p','rb'))
+            
+        if WvGoal10HzHint=='none':#try to figure out WvGoal10HzHint from YSSs
+            YSSsQ=cls.YSSs_get()
+            WvGoal10HzHint=cls.EW2string(Psns=PsnsQ,SSs=SSsQ,YSSs=YSSsQ,offsetQ=0)
+
         print('Saving timestamp: '+datetime.now().strftime('%A, %d. %B %Y %I:%M:%S%p'))
         if TargetwlistDateQ == 'curr':
             print('Using current Highland waveform...')
@@ -1135,10 +1167,7 @@ class LPL:
             NewWvfmQ=wavehistQ[TargetwindexQ][:]
             WvGoal10HzHint=WvGoal10HzHint+', w'+str(TargetwlistDateQ)+'['+str(TargetwindexQ)+']'
 
-        if PsnsQ == 0:
-            PsnsQ=GLOBAL.PSNS.get()#pickle.load(open(psfpQ+'Psns.p','rb'))
-        if SSsQ == 0:
-            SSsQ=[GLOBAL.SSS.get()[2*ii:2*ii+2] for ii in range(len(PsnsQ))]#pickle.load(open(psfpQ+'SSs.p','rb'))
+
         if YFEgetQ == 0:
             YFEgetQ=YFE.Get(display=False)
         [YFE02mmCurrQ,YFE02mmCurrQ,YFE02mmCurrQ,YFE02mmCurrQ,YFE06mmCurrQ,YFE10mmCurrQ]=YFEgetQ
@@ -1283,29 +1312,31 @@ class LPL:
             print('YFE does not appear to be on! Check YFE status first!')
             return False
         #load and extract the pulse target from the desired recipe
-        if RecipeStrQ=='latest':
-            RecipeStrQ=GLOBAL.CurrShape.get()
-        try:
-            [Psns,SSs,YFE02mmCurr,YFE06mmCurr,YFE10mmCurr,NewWvfm,WvGoal10HzHint] = pickle.load(open(GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p','rb'))
-        except:
-            print('Recipe file '+GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p\' not found.')
-            return
-        print('Hint text: '+WvGoal10HzHint)
-        pseparams=np.array(re.findall('ExponentialWave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10HzHint),dtype=np.float32);
-        pslparams=np.array(re.findall('LinearWave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10HzHint),dtype=np.float32);
-        try:
-            psYFEbkgrdY=float(re.findall('YFEbkgrdY\s?=\s?([-+]?\d+\.?\d*|[-+]?\.\d+)',WvGoal10HzHint)[0]);
-        except:
+        if RecipeStrQ=='latest':#if refreshing most recent wvfm, just use EW2 and RBV of Psns, SSs, and YSSs
             psYFEbkgrdY=0
-        yfegoal=cls.LinearWave2(500,0,1025,0,0,5002);
-        if (len(pslparams) > 0) or (len(pseparams) > 0):
-            for ii in range(len(pslparams)): 
-                yfegoal+=cls.LinearWave2(pslparams[ii][0],pslparams[ii][1],pslparams[ii][2],pslparams[ii][3],0,5002)
-            for ii in range(len(pseparams)): 
-                yfegoal+=cls.ExponentialWave2(pseparams[ii][0],pseparams[ii][1],pseparams[ii][2],pseparams[ii][3],0,5002)
-        else:
-            print('No wave extracted: '+WvGoal10HzHint)
-            return
+            yfegoal=cls.EW2(Psns=cls.Psns_get(), SSs=cls.SSs_get(), YSSs=cls.YSSs_get(), offsetQ=0)
+        else:#if not refreshing most recent wvfm
+            try:
+                [Psns,SSs,YFE02mmCurr,YFE06mmCurr,YFE10mmCurr,NewWvfm,WvGoal10HzHint] = pickle.load(open(GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p','rb'))
+            except:
+                print('Recipe file '+GLOBAL.PSFILEPATH+'recipes/load'+RecipeStrQ+'.p\' not found.')
+                return
+            print('Hint text: '+WvGoal10HzHint)
+            pseparams=np.array(re.findall('ExponentialWave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10HzHint),dtype=np.float32);
+            pslparams=np.array(re.findall('LinearWave2\((\d+),(\d+\.\d+|\.\d+),(\d+),(\d+\.\d+|\.\d+),0,5002\)',WvGoal10HzHint),dtype=np.float32);
+            try:
+                psYFEbkgrdY=float(re.findall('YFEbkgrdY\s?=\s?([-+]?\d+\.?\d*|[-+]?\.\d+)',WvGoal10HzHint)[0]);
+            except:
+                psYFEbkgrdY=0
+            yfegoal=cls.LinearWave2(500,0,1025,0,0,5002);
+            if (len(pslparams) > 0) or (len(pseparams) > 0):
+                for ii in range(len(pslparams)): 
+                    yfegoal+=cls.LinearWave2(pslparams[ii][0],pslparams[ii][1],pslparams[ii][2],pslparams[ii][3],0,5002)
+                for ii in range(len(pseparams)): 
+                    yfegoal+=cls.ExponentialWave2(pseparams[ii][0],pseparams[ii][1],pseparams[ii][2],pseparams[ii][3],0,5002)
+            else:
+                print('No wave extracted: '+WvGoal10HzHint)
+                return
         #close the shutters
         #print('NOT closing the shutters... hope you\'re protecting your sample!')
         print('Closing all shutters...')
@@ -1547,15 +1578,17 @@ class LPL:
     def SHG_opt(cls,armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start in the open state... 
         """
         Optimizes the tuning of the doubler angles to maximize the conversion efficiency of the arms of the LPL
-        Prompts inlcuded to help insure system is in appropriate state for optimization
+        (SHG_opt is useful especially if ambient conditions change; sometimes needs to be run fairly regularly)
+        Prompts included to help insure system is in appropriate state for optimization
         Entire function should take only a couple of minutes; live display allows you to monitor progress
         If new value is too close to edge of window, it is recommended to optimize that arm again
         (If the doublers are way far off (no detection), tune the Newport motor back until it is closer)
         
         If leaving armsQ blank: all arms are optimized in the order of AB, EF, GH, IJ
+            :EXAMPLE: SHG_opt() is equivalent to SHG_opt('ABEFGHIJ') and optimizes all arms
         Instead, one may choose specific arms to optimize
-            :EXAMPLE: armsQ='ABIJ' optimizes only arms AB and IJ
-            :EXAMPLE: armsQ='EF' optimizes only arm EF
+            :EXAMPLE: SHG_opt(armsQ='ABIJ') or SHG_opt('ABIJ') optimizes only arms AB and IJ
+            :EXAMPLE: SHG_opt(armsQ='EF') or SHG_opt('EF') optimizes only arm EF
         """
         print('Running this routine requires ALL TTL shutters to begin in the open state! The YFE must be on with the bias dither initially enabled!')
         if np.sum(TTL_shutter.Status(display=False)[-1]) > 0:
@@ -1698,25 +1731,53 @@ class LPL:
 
         
 class efc:
-    """Extra Function Class for convenient shorthand ways of doing common things like plotting data, printing in color, and other frequent actions"""
-# =============================================================================
-#       potential future work
-#       - consider consolidating some functions into one
-#           - e.g. all the plotting shortcuts
-#           - e.g. getch with and without TimeOut?
-#       - add EZeLog function
-#       - add threading helper functions?
-#       - test: fixed getch_with_TO causing print /r fail??
-#       - 
-#       - 
-#       - 
-#       - 
-#       - 
-#       - 
-#       - 
-# =============================================================================
+    """
+    Extra Function Class for convenient shorthand ways of doing common things like plotting data, printing in color, and other frequent actions
+    Typical usage via efc.[command]
+    Possible commands include:
+        :epl #quick plot of single array of y values
+        :eplxy #quick plot of single array of y values with x values also specified
+        :eplxyloglog #quick xy plot with log x- and y-axes
+        :eplsav #save plot of single array of y values
+        :eplxysav #save plot of single array of y values with x values also specified
+        :eplcomp #quick plot meant to compare diode waveform to pulse goal
+        :eplcsv #quick plot of single array from csv file
+        :epllcsv #quick plot of list of arrays from csv file
+        :rcsv #read in array from csv file
+        :epll #quick plot of list of arrays of y values
+        :epllxy #quick plot of list of arrays of y values with x values also specified
+        :epllxyloglog #quick xy plot of several lists with log x- and y-axes
+        :epllt #plot list of arrays of values according to a time mapping 
+        :epllcomp #plot list of diode waveforms along with target waveform
+        :eplfft #quick plotting of FFT of provided waveform
+        :reloadchk #checks the version of the code being used
+        :reloadpkg #reloads the meclas package from file, in case of version update
+        :cstr #generates string with color text/background options
+        :cprint #prints strings with color text/background options
+        :getch #prompts user for a single input character
+        :getch_with_TO #getch but with TimeOut
+        :input_with_TO #input but with TimeOut
+        :pickledump2 #shortcut for saving objects to file
+        :pickleload2 #shortcut for reloading objects from file
+        :dotsleep #shortcut for printing dots while waiting
+        :ssleep #shortcut for standard socket waiting time
+        :rPV #shortcut for reading values from PVs
+        :wPV #shortcut for writing values to PVs
+    potential future work
+        - consider consolidating some functions into one
+            - e.g. all the plotting shortcuts?
+            - e.g. getch with and without TimeOut?
+        - add EZeLog function
+            - take care of all the hassle of posting to the LCLS eLog from Python so people can do so very easily
+        - add threading helper functions?
+    """
     def epl(listq,xlb='none',ylb='none',xlim='none',ylim='none'):
-        """Shorthand plotting function for a single list of y-values"""
+        """
+        Shorthand plotting function for a single list of y-values
+        Example: epl([1,2,4]) generates a plot of [1,2,4]
+        Optional: Set the labels for the x-axis and y-axis with xlb and ylb, respectively
+        Optional: Set the limits for the x-axis and y-axis with xlim and ylim, respectively
+        """
         df1=plt.figure()
         plt.plot(listq);
         if xlb != 'none':
@@ -1737,7 +1798,13 @@ class efc:
         return
 
     def eplxy(listxq,listyq,xlb='none',ylb='none',xlim='none',ylim='none'):
-        """Shorthand plotting function for a single list of x-values and y-values"""
+        """
+        Shorthand plotting function for a single list of x-values and y-values
+        Be sure to include the list of (equal-length) x-values and y-values separately
+        Example: eplxy([10,20,30],[1,5,18]) generates a plot of points (10,1), (20,5), and (30,18)
+        Optional: Set the labels for the x-axis and y-axis with xlb and ylb, respectively
+        Optional: Set the limits for the x-axis and y-axis with xlim and ylim, respectively
+        """
         df1=plt.figure()
         plt.plot(listxq,listyq);
         if xlb != 'none':
@@ -1758,7 +1825,13 @@ class efc:
         return
 
     def eplxyloglog(listxq,listyq,xlb='none',ylb='none',xlim='none',ylim='none'):
-        """Shorthand plotting function for a single list of x-values and y-values with logrithmic axes in both directions"""
+        """
+        Shorthand plotting function for a single list of x-values and y-values with logrithmic axes in both directions
+        Be sure to include the list of (equal-length) x-values and y-values separately
+        Example: eplxyloglog([10,100,1000],[.3,.05,.001]) generates a log-log plot of points (10,.3), (100,.05), and (1000,.001)
+        Optional: Set the labels for the x-axis and y-axis with xlb and ylb, respectively
+        Optional: Set the limits for the x-axis and y-axis with xlim and ylim, respectively
+        """
         df1=plt.figure()
         plt.loglog(listxq,listyq);
         if xlb != 'none':
@@ -1779,7 +1852,14 @@ class efc:
         return
 
     def eplsav(listq,FileNameQ,blockdisplay=True):
-        """Shorthand function for saving a plot of a single list of y-values"""
+        """
+        Shorthand function for saving a plot of a single list of y-values as a .png file
+        Example: eplsav([1,2,4,8],'/reg/neh/operator/mecopr/my_plot') saves the plot of [1,2,4,8]
+                 to the file name and path '/reg/neh/operator/mecopr/my_plot'
+                 (there is no need to include the file extension -- it is added inside the code)
+        Optional: blockdisplay=True closes the figure after creating and saving; 
+                  blockdisplay=False means the figure will be saved AND displayed on the screen
+        """
         df1=plt.figure()
         plt.plot(listq);
         df1.savefig(str(FileNameQ+'.png'))
@@ -1788,7 +1868,18 @@ class efc:
         return
         
     def eplxysav(listxq,listyq,FileNameQ,abs_path=False,xlb='none',ylb='none',xlim='none',ylim='none'):
-        """Shorthand function for saving a plot of a single list of x-values and y-values"""
+        """
+        Shorthand function for saving a plot of a single list of x-values and y-values
+        Be sure to include the list of (equal-length) x-values and y-values separately
+        Example: eplxysav([10,20,30],[1,5,18],'/reg/neh/operator/mecopr/my_plot',abs_path=True)
+                 saves the plot of points (10,1), (20,5), and (30,18) to the file name and
+                 path '/reg/neh/operator/mecopr/my_plot'
+                 (there is no need to include the file extension -- it is added inside the code)
+        Optional: Set abs_path=False to save the plot to your current working directory;
+                  Set abs_path=True to specify the absolute path where you will save your plot
+        Optional: Set the labels for the x-axis and y-axis with xlb and ylb, respectively
+        Optional: Set the limits for the x-axis and y-axis with xlim and ylim, respectively
+        """
         df1=plt.figure()
         plt.plot(listxq,listyq);
         if abs_path:
@@ -1814,7 +1905,11 @@ class efc:
         return
         
     def eplcomp(listq,goalq,Map,tMax):
-        """Shorthand function for comparing a pulse shape to its targeted pulse shape; not used much currently"""
+        """
+        Shorthand function for comparing a pulse shape to its targeted pulse shape; not used much currently
+        Map and tMax are the parameters used for formatting the data in listq according to the desired new x- and y-range
+        goalq is the waveform to which the formatted listq will be compared
+        """
         formtra=[]
         formtra.append(LPL.TraceFormatting(listq,Map,tMax, AvgRange=1, FWHM=1))
         formtra.append(goalq)
@@ -1822,7 +1917,10 @@ class efc:
         return
 
     def eplcsv(CSVname):
-        """Shorthand plotting function for a single list of y-values loaded from a CSV file; hasn't been used for ages"""
+        """
+        Shorthand plotting function for a single list of y-values loaded from a CSV file; hasn't been used for ages
+        File should be located within the data folder along GLOBAL.PSFILEPATH, i.e. '/reg/neh/operator/mecopr/mecpython/pulseshaping/data'
+        """
         with open(GLOBAL.PSFILEPATH+'data/'+CSVname+'.csv','r') as filehead:
             RawListQ=filehead.read()
             ListedValues=RawListQ.split('\n')
@@ -1830,7 +1928,12 @@ class efc:
         return 
 
     def epllcsv(CSVHeadname):
-        """Shorthand plotting function for a nested list of four sets of y-values loaded from a CSV file; hasn't been used for ages"""
+        """
+        Shorthand plotting function for a nested list of four sets of y-values loaded from a CSV file; hasn't been used for ages
+        File should be located within the data folder along GLOBAL.PSFILEPATH, i.e. '/reg/neh/operator/mecopr/mecpython/pulseshaping/data'
+        Channels formatted to match output of LeCroy schall function, but this also isn't used much anymore at all
+        Only the header of the name needs to be specified, i.e. not counting _ch1, etc.
+        """
         ListofListedValues=[]
         for ii in range(1,5):
             with open(GLOBAL.PSFILEPATH+'data/'+CSVHeadname+'_ch'+str(ii)+'.csv','r') as filehead:
@@ -1841,7 +1944,11 @@ class efc:
         return 
 
     def rcsv(CSVname):
-        """Shorthand function for reading a list of y-values from a CSV file; hasn't been used for ages"""
+        """
+        Shorthand function for reading a list of y-values from a CSV file; hasn't been used for ages
+        File should be located within the data folder along GLOBAL.PSFILEPATH, i.e. '/reg/neh/operator/mecopr/mecpython/pulseshaping/data'
+        Returns the values read out from the CSV file as an array
+        """
         with open(GLOBAL.PSFILEPATH+'data/'+CSVname+'.csv','r') as filehead:
             RawListQ=filehead.read()
             if '\n' in RawListQ:
@@ -1855,14 +1962,25 @@ class efc:
         return ListedValues
 
     def epll(llist):
-        """Shorthand plotting function for a list of multiple lists of y-values"""
+        """
+        Shorthand plotting function for a list of multiple lists of y-values
+        Example: epll([[1,2,4],[2,7,5],[8,4,2]]) plots three traces over the top of each other:
+                 [1,2,4] in one trace, [2,7,5] in one trace, and [8,4,2] in one trace
+        """
         df1=plt.figure()
         for ii in range(len(llist)):
             plt.plot(llist[ii]);
         df1.show()
         
     def epllxy(llistxyq,xlb='none',ylb='none',xlim='none',ylim='none'):
-        """Shorthand plotting function for a list of multiple lists of x-values and y-values"""
+        """
+        Shorthand plotting function for a list of multiple lists of x-values and y-values
+        Example: epll([[[1,2,3],[1,2,4]],[[1,2,3],[2,7,5]],[[.9,1.7,2.8],[8,4,2]]]) plots three traces over the top of each other:
+                 points (1,1), (2,2), and (3,4) in one trace, points (1,2), (2,7), and (3,5) in one trace, and
+                 points (0.9,8), (1.7,4), and (2.8,2) in one trace
+        Optional: Set the labels for the x-axis and y-axis with xlb and ylb, respectively
+        Optional: Set the limits for the x-axis and y-axis with xlim and ylim, respectively
+        """
         df1=plt.figure()
         for ii in range(len(llistxyq)):
             plt.plot(llistxyq[ii][0],llistxyq[ii][1]);
@@ -1884,7 +2002,14 @@ class efc:
         return
 
     def epllxyloglog(llistxyq,xlb='none',ylb='none',xlim='none',ylim='none'):
-        """Shorthand plotting function for a list of multiple lists of x-values and y-values with logrithmic axes in both directions"""
+        """
+        Shorthand plotting function for a list of multiple lists of x-values and y-values with logrithmic axes in both directions
+        Example: epllxy([[[10,100,1000],[1,20,4]],[[10,100,1000],[.2,70,5]],[[9,170,2800],[80,4,.02]]]) plots three traces over the top of each other:
+                 points (10,1), (100,20), and (1000,4) in one trace, points (10,0.2), (100,70), and (1000,5) in one trace, and
+                 points (9,80), (170,4), and (2800,0.02) in one trace
+        Optional: Set the labels for the x-axis and y-axis with xlb and ylb, respectively
+        Optional: Set the limits for the x-axis and y-axis with xlim and ylim, respectively
+        """
         df1=plt.figure()
         for ii in range(len(llistxyq)):
             plt.loglog(llistxyq[ii][0],llistxyq[ii][1]);
@@ -1906,7 +2031,9 @@ class efc:
         return
 
     def epllt(listq,Map):
-        """Shorthand function for plotting a list of lists projected according to a map; not used much currently"""
+        """
+        Shorthand function for plotting a list of lists projected according to a map; not used much currently
+        """
         formtra=[]
         for ii in range(len(listq)):
             formtra.append(LPL.TraceFormatting(listq[ii],Map[ii],1, AvgRange=1, FWHM=1))
@@ -1922,8 +2049,12 @@ class efc:
         return
         
     def eplfft(errlistQ,time_stepQ):
-        """Shorthand function for loglog-plotting the normalized power spectrum of the Fourier transform of a waveform,
-        given the temporal spacing of the waveform using time_stepQ"""
+        """
+        Shorthand function for loglog-plotting the normalized power spectrum of the Fourier transform of a waveform,
+        given the temporal spacing of the waveform using time_stepQ in seconds
+        Example: for a waveform of energy data sampled every 1min, errlistQ would be the data and time_stepQ would be 60
+        Example: for a simulated laser field with point spacing of 0.1fs, errlistQ would be the laser field and time_stepQ would be 1e-16
+        """
         #time_step1=0.1
         freqs1=np.fft.fftfreq(np.array(errlistQ).size, time_stepQ)
         idx1=np.argsort(freqs1)
@@ -1933,11 +2064,18 @@ class efc:
         return [freqs1[idx1],ps1[idx1]]
         
     def reloadchk():
-        """Shorthand sanity check for the current version of the code"""
-        print('Last stamped: 20220214a')
+        """
+        Shorthand sanity check for the current version of the code
+        When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
+        """
+        print('Last stamped: 20220215a')
         
     def reloadpkg():
-        """Shorthand way of reloading the meclas package using the %run IPython command"""
+        """
+        Shorthand way of reloading the meclas package using the %run IPython command
+        Example: after making and saving edits to the file while testing, simply run reloadpkg() to load the latest changes
+                 into the current session of hutch python (rather than needing to exit and start a new session)
+        """
         from IPython import get_ipython
         #spec = importlib.util.spec_from_file_location("mecps4", "/reg/neh/operator/mecopr/mecpython/pulseshaping/mecps4.py")
         #mecps4 = importlib.util.module_from_spec(spec)
@@ -1948,7 +2086,7 @@ class efc:
 
     @staticmethod
     def tc():
-        """A list of color codes used for color printing to terminal, used by cprint()"""
+        """An internal list of color codes used for color printing to terminal, used by cprint()"""
         colors=['ENDC','BLINK','K','R','G','Y','B','M','C','W','BK','BR','BG','BY','BB','BM','BC','BW','BRK','BRR','BRG','BRY','BRB','BRM','BRC','BRW','BBRK','BBRR','BBRG','BBRY','BBRB','BBRM','BBRC','BBRW']#B- for background, BR+ for 
         colorcodes=['\033['+str(ii)+'m' for ii in [0,5,30,31,32,33,34,35,36,37,40,41,42,43,44,45,46,47,90,91,92,93,94,95,96,97,100,101,102,103,104,105,106,107]];
         return dict(zip(colors,colorcodes))
@@ -1957,9 +2095,18 @@ class efc:
     def cprint(cls,strQ,paramsQ):#delim with commas
         """
         Prints to terminal using provided parameters for color, etc.
-        Parameters delimited with commas
-        Example: efc.cprint('Warning!','BLINK,BRW,BBRR') prints 'Warning!' in blinking BRight White text on Background BRight Red
-        See efc.cstr() for more details on possible parameters for paramsQ
+        Param color choices are 'K','R','G','Y','B','M','C','W'; also available is 'BLINK'
+            :Colors above correspond to blacK, Red, Green, Yellow, Blue, Magenta, Cyan, White
+            :Add a 'BR' before each color to specify it to the BRight
+            :Add a 'B' on the very front to specify the color as Background
+            :Example: 'W' is White (text)
+            :Example: 'BK' is Background blacK
+            :Example: 'BRR' is BRight Red (text)
+            :Example: 'BBRB' is Background BRight Blue
+        Multiple parameters can be delimited using commas (order does not matter)
+            :Example: 'BLINK,BRY,BB' is BLINKing BRight Yellow text on Background Blue 
+        Example: cprint('Warning!','BLINK,BRW,BBRR') prints 'Warning!' in blinking BRight White text on Background BRight Red
+        Alternatively, color strings can be created using cstr() and passed straight to the standard print() function
         """
         prargs=''
         if len(paramsQ) == 0:
@@ -1974,15 +2121,21 @@ class efc:
         """
         Prepares a string (i.e. for later printing to terminal) using provided parameters for color, etc.
         Param color choices are 'K','R','G','Y','B','M','C','W'; also available is 'BLINK'
-        (Colors above correspond to blacK, Red, Green, Yellow, Blue, Magenta, Cyan, White)
-        Add a 'BR' before each color to specify it to the BRight
-        Add a 'B' on the very front to specify the color as Background
-        Example: 'W' is White (text)
-        Example: 'BK' is Background blacK
-        Example: 'BRR' is BRight Red (text)
-        Example: 'BBRB' is Background BRight Blue
+            :Colors above correspond to blacK, Red, Green, Yellow, Blue, Magenta, Cyan, White
+            :Add a 'BR' before each color to specify it to the BRight
+            :Add a 'B' on the very front to specify the color as Background
+            :Example: 'W' is White (text)
+            :Example: 'BK' is Background blacK
+            :Example: 'BRR' is BRight Red (text)
+            :Example: 'BBRB' is Background BRight Blue
         Multiple parameters can be delimited using commas (order does not matter)
-        Example: 'BLINK,BRY,BB' is BLINKing BRight Yellow text on Background Blue 
+            :Example: 'BLINK,BRY,BB' is BLINKing BRight Yellow text on Background Blue
+        Example: cstr('Warning!','BLINK,BBRY,K') creates a string 'Warning!' that, when printed to terminal
+                 using print(), appears in blinking blacK text on Background BRight Yellow
+        Note: print(cstr('abc','R,BBRB')) is equivalent to cprint('abc','R,BBRB'), so cstr() is mostly useful
+              when auto-generating colored strings to be printed later
+        Note: if concaenating colored strings with normal strings, the normal strings will not be affected
+        Note: concatenating multiple color strings is necessary for creating combined strings with varying coloration
         """
         prargs=''
         if len(paramsQ) == 0:
@@ -1997,7 +2150,11 @@ class efc:
         return dict(zip(['key_Enter','key_Esc','key_Up','key_Dn','key_Rt','key_Lt'],[13,27,'\033[A','\033[B','\033[C','\033[D']))
 
     def getch():
-        """Similar to input() but takes only a single character and doesn't require hitting Enter"""
+        """
+        Similar to input() but takes only a single character and doesn't require hitting Enter
+        Example: my_char = getch() will cause the terminal to wait for keyboard input and then record
+                 the first keypress into my_char and then return to terminal or the next line in a function/script
+        """
         fdInput = sys.stdin.fileno()
         termAttr = termios.tcgetattr(0);#fdInput);#0) test to fix print problems
         tty.setraw(fdInput)
@@ -2016,6 +2173,9 @@ class efc:
         Use TOsec to set the time-out window in seconds
         Use display=True if you want a message printed to terminal that lets the operator know the time-out duration
         Use display=False to avoid printing a message to terminal telling how many seconds one has to enter a character
+        Example: my_char = getch_with_TO(5,display=False) will wait for the next keyboard input for five seconds
+               : if a keystroke is not recorded within 5 seconds, function returns False
+               : if a keystroke *is* recorded within 5 seconds, function returns the first key pressed
         """
         if display:
             print("You have {} seconds to answer! ".format(str(TOsec)),end='',flush=True)
@@ -2043,7 +2203,9 @@ class efc:
         Use TOsec to set the time-out window in seconds
         Use display=True if you want a message printed to terminal that lets the operator know the time-out duration
         Use display=False to avoid printing a message to terminal telling how many seconds one has to enter input
-
+        Example: my_input = input_with_TO(30,display=False) will wait for keyboard input to be entered for thirty seconds
+               : if input is not entered within 30 seconds, the function returns False
+               : if input *is* enetered within 30 seconds, the function returns the entered text
         """
         if display:
             print("You have {} second{} to answer! ".format(str(TOsec), '' if TOsec==1 else 's'),end='',flush=True)
@@ -2055,26 +2217,46 @@ class efc:
             return False
     
     def pickledump2(objQ,fullFileNameQ):
-        """Shortcut for generating pickle files and setting file access permissions as liberally as possible"""
+        """
+        Shortcut for generating pickle files and setting file access permissions as liberally as possible
+        The first argument objQ is the python object you want to save to file
+        The second argument fullFileNameQ is the full file path and file name for your file
+            :note that for pickle files it is best to end the file with the '.p' file extension
+        Example: pickledump2(thanos_data, '/reg/neh/operator/mecopr/thanos_data.p') saves the contents of thanos_data
+                 to the file '/reg/neh/operator/mecopr/thanos_data.p' and sets file access permissions liberally
+        """
         pickle.dump(objQ,open(fullFileNameQ,'wb'));
         os.chmod(fullFileNameQ,stat.S_IRUSR|stat.S_IWUSR|stat.S_IRGRP|stat.S_IWGRP|stat.S_IROTH|stat.S_IWOTH);#
         #os.chmod(fullFileNameQ,stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO);#
         return
 
     def pickleload2(fullFileNameQ):
-        """Shortcut for loading pickle files without having to type the open command"""
+        """
+        Shortcut for loading pickle files without having to type the open() command
+        The only argument fullFileNameQ is the full file path and file name for your file
+            :note that pickle files tend to have the '.p' file extension
+        Example: thanos_data = pickleload2('/reg/neh/operator/mecopr/thanos_data.p') loads the contents of
+                 the file '/reg/neh/operator/mecopr/thanos_data.p' into thanos_data
+        """
         return pickle.load(open(fullFileNameQ,'rb'));
 
     
     def dotsleep(tSEC):
-        """Similar to time.sleep() but also prints a . character every second for the entire duration, finishing with a * character"""
+        """
+        Similar to time.sleep() but also prints a . character every second for the entire duration, finishing with a * character
+        Example: dotsleep(5) prints a '.' character to screen once per second for 5 seconds, at which point it prints a '*'
+        Note: printing all happens in-line rather than on separate lines
+        """
         for ii in range(tSEC):
             print('.',end='',flush=True);time.sleep(1);
         print('*')
         return
 
     def ssleep():
-        """A convenient shortcut for pausing 150ms for certain types of socket functions to wrap up"""
+        """
+        A convenient shortcut for pausing 150ms for certain types of socket functions to wrap up
+        ssleep() is equivalent to time.sleep(0.15)
+        """
         time.sleep(0.15);
         return
 
@@ -2123,12 +2305,6 @@ class efc:
 #             Z=[[np.exp(-((ii-xpos)/10)**2-((jj-ypos)/7.5)**2) for ii in range(100)] for jj in range(100)]
 #             print('['+str(xpos)+','+str(ypos)+']')
 #         plt.ioff()
-# =============================================================================
-
-# =============================================================================
-#     def EZeLog():
-#         """One day this will take care of all the hassle of posting to the LCLS eLog from Python so people can do so very easily"""
-#         pass
 # =============================================================================
     
     def rPV(yourPV):
@@ -2201,7 +2377,7 @@ class efc:
 #     if CAMargs == ('all',):
 #         CAMargs = ('Regen', 'Trap', 'StrInA', 'StrInB', 'MPA1In', 'MPA1Out', 'MPA2In', 'MPA2Out', 'MPA2Xtal', 'CompIn', 'CompOutNF', 'CompOutFF')
 #     if len(CAMargs) == 1:
-#         QuickView(*CAMargs,LIVE=LIVE,MAXLOOPS=MAXLOOPS)
+#         _QuickView(*CAMargs,LIVE=LIVE,MAXLOOPS=MAXLOOPS)
 #         return
 #     plt.ion()
 #     subply=len(CAMargs)//2 + len(CAMargs)%2;subplx=2;
@@ -2294,8 +2470,33 @@ class HAWG:
     This will take care of all of the socket opening/closing by itself.
     Example: read out the current Highland waveform using HAWG().ReadPulseHeights()
     Example: reset the Highland using HAWG().Reset()
+    (Alternatively, save the initialized object via SH=HAWG() and then use SH.ReadPulseHeights(), etc.)
+    List of possible commands includes:
+        :ReadStatus
+        :ClearStatus
+        :ReadPulseHeights
+        :WritePulseHeights
+        :ReadFiducialImpulseSettings
+        :WriteFiducialImpulseSettings
+        :WriteEnableByte
+        :ReadT0Delay
+        :ReadWaveAmplitudeCalibrations
+        :WriteWaveAmplitudeCalibrations
+        :ReadWaveTimeCalibrations
+        :WriteWaveTimeCalibrations
+        :ReadMiscellaneousCalibrations
+        :WriteMiscellaneousCalibrations
+        :ReadWalkTable
+        :WriteWalkTable
+        :FidOn
+        :FidOff
     
     Most of these functions are for expert use only, so please be careful with them!
+    Potential future work:
+        : FET surveys
+        : Highland internal parameter saving and restoring
+        : find fiducial bump
+        : other outstanding functions not yet programmed from the T400B manual
     """
     def __init__(self):
         """Initializes the object; only one should be instantiated at a time"""
@@ -2307,6 +2508,20 @@ class HAWG:
         Takes care of opening the socket to the Highland; if called explicitly like this, it MUST be followed by a _Close()
             statement or else you'll block the socket and need to power cycle the unit using HAWG().Reset()
             
+        Takes care of opening the socket to the Highland; if called explicitly like this, 
+        it MUST be followed by a _Close() statement or else you'll block the socket and need to 
+        power cycle the unit using HAWG().Reset()
+        
+        Using this function allows one to leave the socket open, which allows for quicker access to Highland functions.
+            :Example: after SH = HAWG() and SH._Open() then one may use functions inside a loop, e.g.
+             for loops in range(50):
+                 curr_wvfm = SH._ReadPulseHeights()
+                 #calculate some change to the waveform based on feedback from diodes, etc.
+                 SH._WritePulseHeights(new_wvfm)
+             reads and writes 50 Highland waveforms withotu opening and closing the socket in between each loop
+             WARNING: DO NOT FORGET to close the socket at the end of your loop (etc.) using SH._Close()
+        In general, there is an "underscored" version of most of the functions mentioned in the SH docstring that
+            can be used in the way described above (e.g. _ReadPulseHeights, _GetStatus, etc.).
         """
         if not self._HighlandSocket:
             try:
@@ -2320,7 +2535,14 @@ class HAWG:
             print('Socket may already be open!')
 
     def _Close(self):
-        """Takes care of closing the socket to the Highland if first explicitly opened using _Open()"""
+        """
+        Takes care of closing the socket to the Highland if first explicitly opened using _Open()
+        Use this after you have taken care of all of your business that you started with _Open()
+        Example: SH=HAWG()
+                 SH._Open()
+                 #a bunch of consecutive Highland calls using underscored commands like _ReadPulseHeights, _WritePulseHeights, etc.
+                 SH._Close()
+        """
         try:
             self._HighlandSocket.close()
             self._HighlandSocket=None
@@ -2434,8 +2656,12 @@ class HAWG:
             return False
 
     def _FunctionWrapper(self,FuncQ,kwargs={}):
-        """A function wrapper that allows one to call each Highland command directly without having to worry about opening/closing sockets;
-        if issuing one-off commands that don't require high-frequency consistent execution, this is sufficient"""
+        """        
+        A function wrapper that allows one to call each Highland command directly without having to worry about opening/closing sockets;
+        if issuing one-off commands that don't require high-frequency consistent execution, this is sufficient
+        In short, this automatically wraps an _Open() and _Close() statement around an "underscored" function (like _ReadPulseHeights)
+           in order to create a function (like ReadPulseHeights) that can be used without explicitly worrying about good socket habits
+        """
         try:
             self._Open();time.sleep(0.15);
             HDataQList=FuncQ(**kwargs);time.sleep(0.15);
@@ -3025,8 +3251,11 @@ class HAWG:
         HDataQ=self._FunctionWrapper(self._WriteWalkTable,{'StringOrList':StringOrList});
         return HDataQ
     
-    def IndFETWave(self,ListOfPixels,WriteValue):#only used in FET survey?? put inside HAWG??
-        """Primarily used to write patterns of individual pixels on the Highland for the sake of calibration"""
+    def IndFETWave(self,ListOfPixels,WriteValue):
+        """
+        Primarily used to write patterns of individual pixels on the Highland for the sake of calibration
+        Historically only really used when recalibrating the Highland, which we don't do that often
+        """
         itt=0
         NewString=''
         while itt<140:
@@ -3279,7 +3508,9 @@ class HAWG:
         return
 
     def FidOff(self):
-        """Shortcut function for turning off the Highland's fiducial impulse"""
+        """
+        Shortcut function for turning off the Highland's fiducial impulse
+        """
         try:
             self.WriteFiducialImpulseSettings(0,0);
         except:
@@ -3303,6 +3534,7 @@ class LOSC:
     This will take care of all of the socket opening/closing by itself.
     Example: read out all the current waveform amplitudes on scope '2' using wvfm4=LOSC('2').rchall()
     Example: wait for a fresh acquisition before reading out channel 2's voltage vs time on scope '1' using ch2_wvfm=LOSC('1').waitrchxy(2)
+    (Alternatively, use the approach above: my_scope = LOSC('A') and then wvfm4=my_scope.rchall() or my_scope.pchxy(4) or whatever)
     
     Possible commands that can be used as described above include:
         :waitrch #wait and read specified channel amplitude
@@ -3319,7 +3551,12 @@ class LOSC:
         :pchallxy #plot amplitude vs time of all channels
         :sumch #sum apmlitude of specified channel
         :save_scope_to_eLog #save specified channel amplitude to eLog
-    See their docstrings for more details 
+        :RestoreConfig #restore acquisition settings according to internal memory
+    There are also functions available for use with bare sockets; these tend to start with underscores.
+    See the docstrings for more guidance.
+    
+    Potential future work:
+        : adding more functionality from the LeCroy manual using the _ctrl function
     """
     def __init__(self, LStrQ):
         """
@@ -3352,6 +3589,16 @@ class LOSC:
         Takes care of opening the socket to the specified LeCroy; if called explicitly like this, 
         it MUST be followed by a _Close() statement or else you'll block the socket and need to 
         locally disable/enable its networking card (or power cycle the unit, but this is not preferred!!)
+        
+        Using this function allows one to leave the socket open, which allows for quicker access to scope functions.
+            :Example: after my_scope = LOSC('1') and my_scope._Open() then one may use functions inside a loop, e.g.
+             save_traces = [my_scope._waitrchxy(4) for ii in range(25)] to save 25 consecutive fresh traces without
+             opening and closing the socket in between each acquistion;
+             WARNING: DO NOT FORGET to close the socket at the end of your loop (etc.) using my_scope._Close()
+        In general, there is an "underscored" version of most of the functions mentioned in the LOSC docstring that
+            can be used in the way described above (e.g. _waitrchxy, _rchall, _pch, etc.). There are also some
+            specialty functions like _ctrl that allow for programming of the oscilloscope using VB commands that
+            can be found in the LeCroy manual.
         """
         if not self._LSock:
             try:
@@ -3364,7 +3611,14 @@ class LOSC:
             print('Socket may already be open!')
 
     def _Close(self):
-        """Takes care of closing the socket to the specified LeCroy if preceded by an _Open() statement"""
+        """
+        Takes care of closing the socket to the specified LeCroy if preceded by an _Open() statement
+        Use this after you have taken care of all of your business that you started with _Open()
+        Example: my_scope=LOSC('1')
+                 my_scope._Open()
+                 #a bunch of consecutive scope calls using underscored commands like _rch, _pchall, etc.
+                 my_scope._Close()
+        """
         try:
             self._LSock.close()
             self._LSock=None
@@ -3373,7 +3627,10 @@ class LOSC:
         return
 
     def _send_and_reply(self,msg,SendOnly=False):
-        """Generic utility for sending a poll to the specified LeCroy's internal processor and receiving its reply"""
+        """
+        Generic utility for sending a poll to the specified LeCroy's internal processor and receiving its reply
+        Not typically used in external scripts -- mostly just for creating the functions in this class
+        """
         try:
             x = bytearray()
             msg=bytearray(msg,'utf8') ##NEW FIX ATTEMPT
@@ -3494,8 +3751,12 @@ class LOSC:
         return d
         
     def _FunctionWrapper(self,FuncQ,kwargs={}):
-        """A function wrapper that allows one to call each LeCroy command directly without having to worry about opening/closing sockets;
-        if issuing one-off commands that don't require high-frequency consistent execution, this is sufficient"""
+        """
+        A function wrapper that allows one to call each LeCroy command directly without having to worry about opening/closing sockets;
+        if issuing one-off commands that don't require high-frequency consistent execution, this is sufficient
+        In short, this automatically wraps an _Open() and _Close() statement around an "underscored" function (like _rchall)
+           in order to create a function (like rchall) that can be used without explicitly worrying about good socket habits
+        """
         try:
             self._Open();time.sleep(0.15);
             LData=FuncQ(**kwargs);time.sleep(0.15);
@@ -3729,7 +3990,11 @@ class LOSC:
         return LData
         
     def save_scope_to_eLog(self,chan_to_eLog=2):
-        """Saves specified scope channel (data + voltage vs time plot) to the eLog"""
+        """
+        Saves specified scope channel (data + voltage vs time plot) to the eLog
+        Example: LOSC('1').save_scope_to_eLog(chan_to_eLog=2) saves channel 2 of LeCroy1
+                 to the current eLog
+        """
         ExpName=LPL.get_curr_exp()
         fpQ=str('/reg/neh/operator/mecopr/experiments/'+ExpName+'/lecroy_xray/')
         chan_to_eLog = int(chan_to_eLog)
@@ -3774,7 +4039,7 @@ class LOSC:
     def _ctrl(self,msg,SendOnly=True):
         """
         Once completed, this function will be used for sending specialized commands to the specified LeCroy; this can be found in the manual
-        other old scribbles:
+        Other old scribbles:
         SetScopeParameters(kwargs) --> scan for different inputs like those listed below; 
            could also specify use case and let it set or RCL appropriately
         (msg='TIME_DIV?',SendOnly=False)
@@ -3785,13 +4050,44 @@ class LOSC:
         (msg=r\"""vbs 'app.acquisition.c1.deskew = 0 ' \""",SendOnly=True)
         """
         self._send_and_reply(msg,SendOnly=SendOnly)
+    
+    def RestoreConfig(self):
+        """
+        Demonstration of one way to use the _ctrl function by means of _FunctionWrapper
+        Function recalls scope configuration from scope internal memory file #1
+            (note: administratively this is the memory file where we keep the latest config)
+        Example: LOSC('A').RestoreConfig() resets LeCroyA's scope setup according to internal memory file #1
+        This is especially useful if scope settings were mistakenly changed and need to be restored
+            in order to allow for appropriate pulse shaping performance
+        """
+        LData=self._FunctionWrapper(self._ctrl,{'msg':'*RCL 1','SendOnly':False});
+        return LData
 
 
 
 
 
 class EMeters:
-    """Class containing readout functions for energy meters on all MEC laser systems"""
+    """
+    Class containing readout functions for energy meters on all MEC laser systems
+    Typically used via EMeters.[command]
+    
+    Possible commands include:
+        :LPLInChamber #returns in-chamber energy meter read-outs
+        :EG #returns 2in2w energy meter read-outs (scaled by calibration factors)
+        :EG1wYFE1in #returns 2in2w energy meter read-outs (scaled by calibration factors)
+        :EG1w2in #returns 2in2w energy meter read-outs (scaled by calibration factors)
+        :EGall #returns 2in2w energy meter read-outs (scaled by calibration factors)
+        :SPLEG #returns energy of SPL energy meter diagnostics
+        :gentec_refresh #refreshes settings of LPL Gentec meters
+        :E_coeff_refresh #refreshes energy coefficients
+        :E_synth_refresh #refreshes synthesized energies written to notepad PVs
+        
+    See the docstrings for more guidance.
+    
+    Potential future work:
+        : improve SPLEG accuracy currently affected by changing ambient conditions
+    """
     def LPLInChamber(printDisplay=False):
         """
         Returns energy values for in-chamber LPL Gentec meters
@@ -3982,7 +4278,7 @@ class EMeters:
                 temppv.put(valx)       
 
     def E_coeff_refresh():
-        """Resets E_coefficients in notepad PVs"""
+        """Resets E_coefficients in notepad PVs based on coefficients contained in GLOBAL"""
         GLOBAL.notepadPVreset()
         #pvlist=['MEC:LAS:FLOAT:'+str(ii) for ii in range(31,41)];
         #inddesclist=['YFE','CD1w','AB1w','EF1w','GH1w','IJ1w','AB2w','EF2w','GH2w','IJ2w']
@@ -4044,6 +4340,8 @@ class MBC:
         :IsSafe()
         :Reset()
     Check docstrings of individual functions for more details
+    Potential future improvements:
+        - dither parameter control (if possible -- would need expansion of IOC capability)
     """
     def ModeCheck():
         """Returns the current mode of the MBC, either 0 (AUTO) or 1 (MANUAL)"""
@@ -4166,7 +4464,7 @@ class YFE:
     def OnCheck(display=True):
         """
         Checks whether YFE is turned on or off
-        If turned off, returns False; if turned on, returns True
+        Returns False if turned off; returns True if turned on
         Use display=True to print current YFE status to terminal
         Use display=False to avoid printing current YFE status to terminal
         """
@@ -4191,7 +4489,7 @@ class YFE:
     @classmethod
     def On(cls,CtrlChk=True):
         """
-        Initiates turn-on procedure for YFE laser system, including several preliminary equipment checks
+        Initiates turn-on procedure for YFE laser system, including several preliminary equipment checks; may take a minute or so
         Use CtrlChk=True to check the LPL control system (pertinent hosts, IOCs, PVs, etc.) as part of the turn-on procedure
         Use CtrlChk=False to avoid check the LPL control system as part of the turn-on procedure
         """
@@ -4311,6 +4609,7 @@ class YFE:
         Nominal values for currQ are 85, 130, and 124, respectively
         Use display=True to print message to terminal of what values were changed
         Use display=False to avoid writing such a message to terminal
+        Example: Set(10,100) changes the 10mm head to 100A
         """
         YFEadd='MEC:LPL:LCO:0'
         YFEamp=['2','3','5','6','1','4']
@@ -4402,73 +4701,34 @@ class YFE:
 
 
 class PFN:
+    """
+    Class for controlling the PFNs of the MEC Nd:glass LPL
+    Typical usage is as follows: PFN.[command]
+    Possible commands include:
+        :HeadENB #reads back which PFNs are currently enabled
+        :EnableOnly #enables PFNs of specified arms and disables PFNs of unmentioned arms
+        :ArmOnly #same as EnableOnly but also allows specification of the HWP (throttle) on the enabled arms
+    """
     def HeadENB():
         """returns array of length 4, with each entry corresponding to charge state of one pair of heads
         [ABstate, EFstate, GHstate, IJstate]
         0 returned if either head in the pair of heads is disabled
-        1 returned if both heads in the pair of heads are enabled"""
+        1 returned if both heads in the pair of heads are enabled
+        Example: HeadENB() returns [1,1,1,1] if AB, EF, GH, and IJ PFNs are all enabled
+        Example: HeadENB() returns [0,0,1,1] if only GH and IJ (east side) PFNs are enabled
+        """
         cAB=GLOBAL.PFNAEN.get()*GLOBAL.PFNBEN.get()
         cEF=GLOBAL.PFNEEN.get()*GLOBAL.PFNFEN.get()
         cGH=GLOBAL.PFNGEN.get()*GLOBAL.PFNHEN.get()
         cIJ=GLOBAL.PFNIEN.get()*GLOBAL.PFNJEN.get()
         return np.array([cAB,cEF,cGH,cIJ])
-        
-# =============================================================================
-#     def PFNon(ArmStrQ):
-#         if ArmStrQ.lower() == 'all':
-#             ArmStrQ = 'ABCDEFGHIJ'
-#         GLOBAL.PFNmode.put(0)
-#         time.sleep(2)
-#         if ('A' in ArmStrQ) or ('a' in ArmStrQ):
-#             GLOBAL.PFNAEN.put(1)
-#         if ('B' in ArmStrQ) or ('b' in ArmStrQ):
-#             GLOBAL.PFNBEN.put(1)
-#         if ('CD' in ArmStrQ) or ('cd' in ArmStrQ):
-#             GLOBAL.PFNCDEN.put(1)
-#         if ('E' in ArmStrQ) or ('e' in ArmStrQ):
-#             GLOBAL.PFNEEN.put(1)
-#         if ('F' in ArmStrQ) or ('f' in ArmStrQ):
-#             GLOBAL.PFNFEN.put(1)
-#         if ('G' in ArmStrQ) or ('g' in ArmStrQ):
-#             GLOBAL.PFNGEN.put(1)
-#         if ('H' in ArmStrQ) or ('h' in ArmStrQ):
-#             GLOBAL.PFNHEN.put(1)
-#         if ('I' in ArmStrQ) or ('i' in ArmStrQ):
-#             GLOBAL.PFNIEN.put(1)
-#         if ('J' in ArmStrQ) or ('j' in ArmStrQ):
-#             GLOBAL.PFNJEN.put(1)
-#         time.sleep(2);GLOBAL.PFNmode.put(1);time.sleep(3.5);GLOBAL.PFNmode.put(2);
-#         return
-# 
-#     def PFNoff(ArmStrQ):
-#         if ArmStrQ.lower() == 'all':
-#             ArmStrQ = 'ABCDEFGHIJ'
-#         GLOBAL.PFNmode.put(0)
-#         time.sleep(2)
-#         if ('A' in ArmStrQ) or ('a' in ArmStrQ):
-#             GLOBAL.PFNAEN.put(0)
-#         if ('B' in ArmStrQ) or ('b' in ArmStrQ):
-#             GLOBAL.PFNBEN.put(0)
-#         if ('CD' in ArmStrQ) or ('cd' in ArmStrQ):
-#             GLOBAL.PFNCDEN.put(0)
-#         if ('E' in ArmStrQ) or ('e' in ArmStrQ):
-#             GLOBAL.PFNEEN.put(0)
-#         if ('F' in ArmStrQ) or ('f' in ArmStrQ):
-#             GLOBAL.PFNFEN.put(0)
-#         if ('G' in ArmStrQ) or ('g' in ArmStrQ):
-#             GLOBAL.PFNGEN.put(0)
-#         if ('H' in ArmStrQ) or ('h' in ArmStrQ):
-#             GLOBAL.PFNHEN.put(0)
-#         if ('I' in ArmStrQ) or ('i' in ArmStrQ):
-#             GLOBAL.PFNIEN.put(0)
-#         if ('J' in ArmStrQ) or ('j' in ArmStrQ):
-#             GLOBAL.PFNJEN.put(0)
-#         time.sleep(2);GLOBAL.PFNmode.put(1);time.sleep(3.5);GLOBAL.PFNmode.put(2);
-#         return
-# =============================================================================
 
     def EnableOnly(ArmStrQ):
-        """enables just the heads listed while disabling all the heads that are not listed"""
+        """
+        enables just the heads listed while disabling all the heads that are not listed
+        Example: EnableOnly('all') enables AB, EF, GH, and IJ PFNs
+        Example: EnableOnly('ABIJ') enables AB and IJ PFNs and disables EF and GH PFNs
+        """
         AllStrQ='ABEFGHIJ'
         if ArmStrQ.lower() == 'all':
             ArmStrQ = AllStrQ
@@ -4487,9 +4747,13 @@ class PFN:
 
     @classmethod
     def ArmOnly(cls,ArmStrQ,set_T=1):
-        """changes HWP settings of specified arms to set_T and enables just the heads listed
-        while disabling all the heads that are not listed
-        (the HWP values of the heads not listed are not changed)"""
+        """
+        enables just the heads listed AND changes HWP settings of specified arms to set_T;
+        all the heads that are not listed are disabled (although their HWP values are not changed)
+        Example: ArmOnly('all') enables all PFNs and sets all HWPs for full transmission
+        Example: ArmOnly('EFGH',set_T=0.5) enables EF and GH PFNs, disables AB and IJ PFNs,
+                 and sets EF and GH HWPs for 50% transmission (AB and IJ HWPs are not touched)
+        """
         HWP.On(ArmStrQ,set_T=set_T)
         cls.EnableOnly(ArmStrQ)
         return
@@ -4499,7 +4763,21 @@ class PFN:
     
         
 class HWP:
-    def On(ArmStrQ,set_T=1):#fullON=1;fullOFF=0
+    """
+    Class for controlling the HWPs of the MEC Nd:glass LPL
+    Typical usage is as follows: HWP.[command]
+    Possible commands include:
+        :On #sets the desired transmission level of the specified arms
+        :Status #prints current HWP settings and returns an array of anticipated transmission levels
+        :ClearStart #attempts to clear motor restart for AB and EF HWPs
+        :HWP_opt #attempts to calibrate the HWP settings such that 0deg corresponds to full transmission
+    """
+    def On(ArmStrQ,set_T=1):
+        """
+        Adjusts the waveplates of the specified arms in order to provide the specified transmission
+        Example: On('all') sets the transmission for AB, EF, GH, and IJ to 100% (default for set_T is 1)
+        Example: On('ABIJ',set_T=0.75) sets the transmission for AB and IJ to 75%
+        """
         armlist=['AB','EF','GH','IJ'];
         if (set_T<0) or (set_T>1):
             set_T=1;print('Error: set_T must be between 0 and 1! Using set_T=1 instead...')
@@ -4534,7 +4812,15 @@ class HWP:
                     print('Re-try on '+armlist[ii]+' failed!')
         return
     
-    def Status():#fullON=1;fullOFF=0
+    def Status():
+        """
+        prints current HWP settings to terminal and returns an array of anticipated transmission levels
+        Example: if all HWPs are set to 0deg, returned array has form [1,1,1,1] showing 100% transmission on all arms
+        Example: if all AB and IJ HWPs are set to 22.5deg, and EF and GH HWPs are set to 45deg,
+                 returned array has form [0.5,0,0,0.5] showing AB and IJ HWPs are set for 50% transmission,
+                 and EF and GH are set for 0% transmission
+        (Both examples will also include a print-out to terminal showing current angle setting and corresponding transmission)
+        """
         armlist=['AB','EF','GH','IJ'];
         HWPpvlist=[GLOBAL.HWPAB,GLOBAL.HWPEF,GLOBAL.HWPGH,GLOBAL.HWPIJ];
         set_Tlist=[round((np.cos(2*motor_angleRBV.get()*(np.pi/180)))**2,4) for motor_angleRBV in HWPpvlist]
@@ -4544,6 +4830,10 @@ class HWP:
         return set_Tlist
         
     def ClearStart():
+        """
+        attempts to clear motor restart for AB and EF HWPs (running on MFORCE chassis)
+        (no equivalent function for GH and IJ waveplates yet (running on Newport crate))
+        """
         resetPVs=[GLOBAL.HWPABclr, GLOBAL.HWPEFclr]#no equivalent for GH and IJ yet...
         try:
             for eapv in resetPVs:
@@ -4552,6 +4842,20 @@ class HWP:
             print('Failed!')
         
     def HWP_opt(armsQ='ABEFGHIJ'):#check for trace height;#All shutters must start in the open state... 
+        """
+        Like SHG_opt() but instead optimizes the HWP angles to set maximum transmission at 0deg
+        (HWP_opt is really only useful if someone manually rotates the knob inside the enclosure, so usage is very infrequent)
+        Prompts included to help insure system is in appropriate state for optimization
+        Entire function takes several minutes (longer than SHG_opt); live display allows you to monitor progress
+        If new value is too close to edge of window, it is recommended to optimize that arm again
+        (If the angles are way far off (no detection), tune the Newport motor back until it is closer)
+        
+        If leaving armsQ blank: all arms are optimized in the order of AB, EF, GH, IJ
+            :EXAMPLE: HWP_opt() is equivalent to HWP_opt('ABEFGHIJ') and optimizes all arms
+        Instead, one may choose specific arms to optimize
+            :EXAMPLE: HWP_opt(armsQ='ABIJ') or HWP_opt('ABIJ') optimizes only arms AB and IJ
+            :EXAMPLE: HWP_opt(armsQ='EF') or HWP_opt('EF') optimizes only arm EF
+        """
         print('Running this routine requires ALL TTL shutters to begin in the open state! The YFE must be on with the bias dither initially enabled!')
         if np.sum(TTL_shutter.Status(display=False)[-1]) > 0:
             print('Warning! The shutters don\'t all appear to be open! ',end='',flush=True);TTL_shutter.Status(display=True);
@@ -4710,6 +5014,15 @@ class HWP:
 
 
 class Stage:
+    """
+    Stores functions related to stages and motors
+    Current functions include:
+        :NewportInitRefAll #useful routine for recovering from Newport outage -- initializes and references all channels
+    Potential future work:
+        -SmarAct motor utilities
+        -motor setting snapshots
+        -motor setting restoration
+    """
     def NewportInitRefAll():
         ipvlist=[GLOBAL.XPS1IALL, GLOBAL.XPS2IALL, GLOBAL.XPS3IALL, GLOBAL.XPS4IALL]
         rpvlist=[GLOBAL.XPS1RALL, GLOBAL.XPS2RALL, GLOBAL.XPS3RALL, GLOBAL.XPS4RALL]        
@@ -4722,64 +5035,70 @@ class Stage:
         except:
             print('Failed!') 
                   
-    def SmarAct():
-        pass
-                  
-    def Snapshot():
-        pass
-                  
-    def Restore():
-        pass
-                  
 
 
 
                   
 class Timing:
-# =============================================================================
-#       potential future work
-#       - EVR snapshot and refresh functions
-#       - 
-#       - 
-#       - 
-#       - 
-#       - 
-#       - 
-#       - 
-#       - 
-# =============================================================================
-    def fstiming():
-        pass
-                  
-    def Nstiming():
-        pass                  
-                  
-    def EVR():
-        pass
-                  
-    def Vitara():
-        pass
-                  
-
+    """
+    Potential future class containing timing-related utilities such as:
+        - EVR snapshot and refresh functions
+        - fstiming utilities
+        - Nstiming utilities
+        - Vitara utilities      
+    """
+    pass
 
 
 
 class CAM:
-# =============================================================================
-#       potential future work
-#       - save images to file easily 
-#       - also in connection with scan parameters
-#       - 
-#       - 
-#       - 
-#       - 
-#       - 
-#       - 
-#       - 
-# =============================================================================
+    """
+    Class mostly containing utilities for GigE cameras for MEC
+    Typical usage via CAM.[command]
+    List of possible commands includes:
+        :Name #helps with names and naming conventions of all cameras in MEC
+        :View #quickly view a single camera or multiple cameras in a python window
+        :Config #quickly view a single camera in a python window
+        :ConfigCurrent #quickly view a single camera in a python window
+    Potential future work:
+        - save images to file easily 
+        - (also in connection with scan parameters)
+        - GigE_toggle_trigger for configuring SPL camera triggers
+        - setdynxhair for quickly setting a custom temporary crosshair position, etc.
+        - combined utility for tuning a beam while watching a live image of the camera
+    """
     def Name(GIGEnam='none',returnAll=False):
-        """ with no argument given, returns a list of names of all cameras
-        with single GIGEnam given, returns the corresponding PV name"""
+        """
+        There are three types of camera names: the PV Name, the SPL CAM Name, and the NickName
+        This function helps display the table of names and also translates NickNames and SPL CAM Names
+            into the PV Names, which are needed to run the different camera viewer utilities (etc.)
+            
+        With no argument given, Name() returns a list of names of all cameras
+        Example: Name() prints out a table with all supported GigE cameras -- something like this:
+            Camera NickName                SPL CAM Name          PV Name      Motor
+            Legend     or   Regen          MEC_SPL_3             MEC:GIGE:24  SM0
+            StrInA     or   TopasA         MEC_SPL_1             MEC:GIGE:22  SM1
+            StrInB     or   TopasB         MEC_SPL_7             MEC:GIGE:28  SM2
+            MPA1In     or   MPA1A          MEC_SPL_2             MEC:GIGE:23  SM3
+            MPA1Out    or   MPA1B          MEC_SPL_4             MEC:GIGE:25  SM4
+            MPA2In     or   MPA2A          MEC_SPL_5             MEC:GIGE:26  SM5
+            MPA2Xtal   or   MPA2F          GigE17_TimeTool_Diag  MEC:GIGE:17  SM6
+            MPA2Out    or   MPA2B          MEC_SPL_6             MEC:GIGE:27  SM7
+            CompIn     or   CompA          MEC_SPL_9             MEC:GIGE:29  SM8
+            CompOutFF  or   CompBFF        MEC_SPL_10            MEC:GIGE:30  XPS Mid
+            CompOutNF  or   CompBNF        MEC_SPL_11            MEC:GIGE:31  XPS In
+            Trap       or   Mousetrap      MEC_SPL_8             MEC:GIGE:16  None
+        
+        For every PV name (e.g. 'MEC:GIGE:24'), there is a corresponding SPL CAM Name (e.g. 'MEC_SPL_3')
+            and two Camera NickNames (e.g. 'Legend' and 'Regen'); there is also a motor that is
+            used to tune the beam to the crosshair shown on the camera's image (e.g. SmarAct SM0)
+        
+        With a single argument for GIGEnam given, function returns the corresponding PV name
+            :EXAMPLE: Name('Legend') and Name('Regen') and Name('MEC_SPL_3') all return 'MEC:GIGE:24'
+        Option: using returnAll=True will return not only the PV Name but also the first Camera NickName
+                and the SPL CAM Name in an array of format [NickName_0, SPL CAM Name, PV Name]
+              : using returnAll=False is the typical usage that returns just the PV Name
+        """
         NickNameList=[['Legend','Regen'], ['StrInA','TopasA'], ['StrInB','TopasB'], ['MPA1In','MPA1A'], ['MPA1Out','MPA1B'], ['MPA2In','MPA2A'], ['MPA2Xtal','MPA2F'], ['MPA2Out','MPA2B'], ['CompIn', 'CompA'], ['CompOutFF', 'CompBFF'], ['CompOutNF', 'CompBNF'], ['Trap', 'Mousetrap']]
         SPLNameList=['MEC_SPL_3', 'MEC_SPL_1', 'MEC_SPL_7', 'MEC_SPL_2', 'MEC_SPL_4', 'MEC_SPL_5', 'GigE17_TimeTool_Diag', 'MEC_SPL_6', 'MEC_SPL_9', 'MEC_SPL_10', 'MEC_SPL_11', 'MEC_SPL_8']
         PVNameList=['MEC:GIGE:24', 'MEC:GIGE:22', 'MEC:GIGE:28', 'MEC:GIGE:23', 'MEC:GIGE:25', 'MEC:GIGE:26', 'MEC:GIGE:17', 'MEC:GIGE:27', 'MEC:GIGE:29', 'MEC:GIGE:30', 'MEC:GIGE:31', 'MEC:GIGE:16']
@@ -4809,8 +5128,22 @@ class CAM:
             return False
         
     @classmethod
-    def QuickView(cls,CAMreq,ImageNo=2,xlb='none',ylb='none',LIVE=False,MAXLOOPS=25,endfreeze=False):#like MEC:GIGE:31
-        """ specify CAMreq using nickname found in CAM.Name()"""
+    def _QuickView(cls,CAMreq,ImageNo=2,xlb='none',ylb='none',LIVE=False,MAXLOOPS=25,endfreeze=False):#like MEC:GIGE:31
+        """
+        returns 2D plot of the camera specified in CAMreq
+        specify CAMreq using a Camera NickName, SPL Cam Name, or PV Name (i.e. from Name())
+        Option: ImageNo should be 2 typically but could be set to 1 potentially
+                (recall that GigE IOCs produce multiple image streams)
+        Option: Set the labels for the x-axis and y-axis with xlb and ylb, respectively
+        Option: Set the limits for the x-axis and y-axis with xlim and ylim, respectively
+        Option: use LIVE=True to show a live image rather than a still image with LIVE=False
+        Option: if LIVE=True then use MAXLOOPS to set the number of loops on the live view before finishing
+        Option: endfreeze=True means that the acquisition is stopped after reaching MAXLOOPS
+              : endfreeze=False means that the acquisition will continue even after the live view ends
+        Example: use _QuickView('Regen') to get just a quick current look at the regen camera output
+        Note: to view more than one camera at a time, use View() instead
+        Note: using View() with only one argument is equivalent to using _QuickView() so using View() is preferred
+        """
         PVhead=cls.Name(CAMreq)
         efc.wPV('{}:Acquire'.format(PVhead),1)#tries to start the camera first
         try:#if True:#try:
@@ -4862,10 +5195,31 @@ class CAM:
 
     @classmethod
     def View(cls, *CAMargs,ImageNo=2,LIVE=False,MAXLOOPS=10,endfreeze=False):
+        """
+        returns 2D plot of the cameras specified in *CAMargs
+        specify *CAMargs using a Camera NickName, SPL Cam Name, or PV Name, listing all desired cameras
+            separated only by commas (see Names() list for options)
+        Example: View('Legend','StrInA','StrInB') plots a static view of the 'Legend', 'StrInA', and
+                 'StrInB' cameras in subplots within a single frame
+        Example: View('all') plots a static view of all cameras in subplots within a single frame
+                 ('all' is equivalent to 'Regen', 'Trap', 'StrInA', 'StrInB', 'MPA1In', 'MPA1Out', 'MPA2In',
+                  'MPA2Out', 'MPA2Xtal', 'CompIn', 'CompOutNF', and 'CompOutFF')
+        Note: if only one camera is specified, then View('Trap') is equivalent to _QuickView('Trap')
+        Note: due to bandwidth limitations and other various performance issues, refresh rate may suffer
+              according to how many cameras are selected!
+        Option: ImageNo should be 2 typically but could be set to 1 potentially
+                (recall that GigE IOCs produce multiple image streams)
+        Option: use LIVE=True to show a live image rather than a still image with LIVE=False
+        Option: if LIVE=True then use MAXLOOPS to set the number of loops on the live view before finishing
+        Option: endfreeze=True means that the acquisition is stopped after reaching MAXLOOPS
+              : endfreeze=False means that the acquisition will continue even after the live view ends
+        """
+        if isinstance(CAMargs[0],tuple) or isinstance(CAMargs[0],list):
+            CAMargs=tuple(CAMargs[0])#try to catch case of someone accidentally entering input as tuple or list
         if CAMargs == ('all',):
             CAMargs = ('Regen', 'Trap', 'StrInA', 'StrInB', 'MPA1In', 'MPA1Out', 'MPA2In', 'MPA2Out', 'MPA2Xtal', 'CompIn', 'CompOutNF', 'CompOutFF')
         if len(CAMargs) == 1:
-            cls.QuickView(*CAMargs,LIVE=LIVE,MAXLOOPS=MAXLOOPS)
+            cls._QuickView(*CAMargs,LIVE=LIVE,MAXLOOPS=MAXLOOPS)
             return
         plt.ion()
         subply=len(CAMargs)//2 + len(CAMargs)%2;subplx=2;
@@ -4958,17 +5312,45 @@ class CAM:
 #             else:
 #                 print('Same frame!')
 # =============================================================================
-# =============================================================================
-#     def setdynxhair(PVhead):
-#         pass
-# =============================================================================
 
     @classmethod
     def Config(cls, CAMreq, RefXhairXY=[-1,-1], InstructionStr='', MisalignmentTolerance=-1, ImageNo=2, RefXhairXYsize=[-1,-1],LIVE=False):
-        #default RefXhairXY=[-1,-1] indicates not to change anything, it was set up previously
-        #default InstructionStr='' indicates not to change anything, it was set up previously
-        #default MisalignmentTolerance=-1 indicates not to change anything, it was set up previously
-        #default RefXhairXYsize=[-1,-1] indicates not to change anything, it was set up previously
+        """ 
+        configures stats, overlay plug-ins, etc. of a given camera specified by CAMreq
+        specify CAMreq using a Camera NickName, SPL Cam Name, or PV Name (i.e. from Name())
+        Option: RefXhairXY sets the desired static reference crosshair position,
+                for example indicating the "targeted" location for a laser beam
+              : default RefXhairXY=[-1,-1] indicates not to change anything, as it was set up previously
+        Option: InstructionStr sets the desired instruction string to be displayed in the corner of the camera image,
+                for example giving a helpful tip/reminder to the viewer (e.g. which motor to use for tuning, etc.)
+              : default InstructionStr='' indicates not to change anything, as it was set up previously
+        Option: MisalignmentTolerance specifies a threshold for the absolute distance (in pixels) between RefXhaiXY
+                and the current beam centroid; if difference > or < MisalignmentTolerance then different messages
+                will be printed to the output screen
+              : default MisalignmentTolerance=-1 indicates not to change anything, as it was set up previously
+        Option: RefXhairXYsize sets the desired size of the static reference crosshair position,
+                for example indicating the approximate size of the laser beam when centered on the "targeted" location
+              : default RefXhairXYsize=[-1,-1] indicates not to change anything, as it was set up previously
+        Option: ImageNo should be 2 typically but could be set to 1 potentially
+                (recall that GigE IOCs produce multiple image streams)
+        Option: LIVE will cause certain overlays to appear or to be hidden, depending on if it is True or False
+              : This is because certain chosen overlays require Python calculations that only occur while the loop is running
+              : In order to avoid confusion, these Python-calculated overlays are hidden when LIVE=False and visible when LIVE=True
+              : Examples of such overlays are the Stats, Counts, and AlignmentOK overlays
+        
+        The GigE cam IOC typically supports 8 overlays on a single image; this function configures the 8 overlays as follows:
+            1: Ref X-hair #static reference crosshair, typically gives a target for the live beam
+            2: DynCentroid #dynamic centroid whose position and size follow the position and size of the laser
+            3: CAMname #text overlay of the name of the camera, meant to help avoid confusing cameras for each other
+            4: Instructions #meant to provide helpful tips to viewers, e.g. on what action to take if the beam is misaligned
+            5: TimeStamp #adds the current timestamp, useful for checking how recent the visible image is, etc.
+            6: Stats #uses Python to calculate and display centroid X and Y and sigma X and Y on-screen
+            7: Counts #uses Python to calculate and display camera's Max and Total counts on-screen
+            8: AlignmentOK #displays a conditional message depending on if the misalignment exceeds the MisalignmentTolerance or not
+        
+        Nominal values for the MEC SPL camera configurations are kept in ConfigCurrent(); if things get screwed up (because sometimes
+        the IOC just has a bad day and screws everything up), you can run ConfigCurrent() and *hopefully* get back to normal
+        """
         PVhead=cls.Name(CAMreq)
         efc.wPV('{}:Acquire'.format(PVhead),0)#hopefully prevents IOC crashes, per TylerJ
         ArraySize=[efc.rPV('{}:IMAGE{}:ArraySize0_RBV'.format(PVhead,ImageNo)),efc.rPV('{}:IMAGE{}:ArraySize1_RBV'.format(PVhead,ImageNo))]
@@ -4979,7 +5361,7 @@ class CAM:
         #[SizeXLink.DOL, SizeX, PositionXLink.DOL, PositionX, CenterXLink.DOL, CenterX, 
         # SizeYLink.DOL, SizeY, PositionYLink.DOL, PositionY, CenterYLink.DOL, CenterY, 
         # TimeStampFormat]
-        #Size affects Position/Center, so set it first
+        #Size affects Position/Center, so set Size first then Position/Center
         #specify for each overlay in ArgsList
         #in specifying SizeX or SizeY: 9999 indicates it should be set according to string length
         OverlayName='{}:IMAGE{}:{}'.format(PVhead,ImageNo,'XXXX')
@@ -5134,7 +5516,29 @@ class CAM:
 
                   
 class TTL_shutter:
+    """
+    Class for organizing utilities for the TTL-triggerable beam shutters in the LPL and SPL
+    Current shutter locations (and names) are as follows:
+        :LPL: 4 x immediately before the 2" heads on 'AB', 'EF', 'GH', 'IJ'
+            : 2 x immediately before the periscopes going into the chamber, 'WEST 527' ('WW') and 'EAST 527' ('XX')
+        :SPL: 1 x before the compressor grating of the Legend ('REGEN' or 'ZZ')
+    Shutters do not possess internal state sensor, so state of each shutter (open vs closed) tracked using notepad PVs
+    Typical usage via TTL_shutter.[command]
+    Possible commands include:
+        :Status #provides the current status (open vs closed) of each shutter
+        :Toggle #allows control of shutters to open/close/toggle state
+        :Refresh #refresh state tracker if shutters are touched manually or Beckhoff has problems, etc.
+    """
     def Status(display=True):
+        """
+        Provides the current status (open vs closed) of all shutters, returning an array of 0s and 1s
+        Array values correspond to shutters in the following order:
+            : ['AB','EF','GH','IJ','WEST 527','EAST 527','REGEN']
+        Example: if all shutters are closed except for 'AB', 'EF', and 'WEST 527', the output will be
+                 [0,0,1,1,0,1,1]
+        Option: if display=True then a status report is printed out to terminal in addition to returning the status array
+              : if display=False then only the status array is returned; nothing is printed to terminal
+        """
         pvstatuslist=['MEC:LAS:FLOAT:'+str(ii) for ii in range(14,21)];
         statuslist=[]
         for eapv in pvstatuslist:
@@ -5147,11 +5551,24 @@ class TTL_shutter:
 
     @classmethod
     def Toggle(cls,ArmStrQ,display=True):
-        """just the arms will toggle from whatever is the current state
-        using open or close at the beginning will toggle specified arms only if state not already satisfied,
-        guaranteeing that the final state is the one specified
-        shutter options are AB, EF, GH, IJ, WW (LPL west), XX (LPL east), and ZZ (SPL regen)
-        using all is equivalent to using ABEFGHIJWWXX
+        """
+        Toggles the current state of all shutters mentioned in ArmStrQ and then returns the shutter status at the end
+        Using 'open' or 'close' at the beginning of ArmStrQ simply makes sure that all specified arms end up in the specified state
+            rather than just toggling the state, i.e. it will toggle specified arms only if the specified state is not already satisfied
+        Shutter options are 'AB', 'EF', 'GH', 'IJ', 'WW' (west 527), 'XX' (east 527), and 'ZZ' (SPL regen)
+        Using 'all' is equivalent to using 'ABEFGHIJWWXX' (note that the regen shutter 'ZZ' is left out)
+        Example: Toggle('ABEF') will toggle the 'AB' and 'EF' shutters from whatever their current state is,
+                 i.e. if 'AB' was open and 'EF' was closed then Toggle('ABEF') would close 'AB' and open 'EF'
+        Example: Toggle('openABIJ') will make sure 'AB' and 'IJ' shutters end up in the open position,
+                 i.e. if 'AB' was closed and 'IJ' was open then 'AB' would be toggled to open and 'IJ' would remain open
+        Example: Toggle('closeall') will make sure all LPL shutters end up in the closed position, 
+                 i.e. if 'AB', 'EF', 'GH', and 'IJ' were initially open and 'WW' and 'XX' were initially closed then
+                 'AB', 'EF', 'GH', and 'IJ' would be toggled to closed and 'WW' and 'XX' would remain in the closed position
+        Example: Toggle('all') toggles the state of all LPL shutters so that the configuration is exactly the opposite of the initial state,
+                 i.e. if 'AB', 'EF', 'GH', and 'IJ' were initially open and 'WW' and 'XX' were initially closed then
+                 'AB', 'EF', 'GH', and 'IJ' would be toggled to closed and 'WW' and 'XX' would be toggled to opened
+        Option: display=True reads back and prints the initial state, makes the toggle, and then reads back and prints the final state
+        Option: display=False still returns the shutter status at the end but does not print anything to terminal
         """
         #could add GLOBALS.TTLAB etc later
         AllStrq='abefghijwwxxzz';#ww is WEST 527, xx is EAST 527, zz is REGEN SHUT
@@ -5187,6 +5604,10 @@ class TTL_shutter:
         return statuslist
 
     def Refresh():
+        """
+        Refreshes state tracker if shutters are touched manually or Beckhoff has problems, etc.
+        Ensure all shutters are open before executing the function in order to insure that the notepad PVs reset correctly
+        """
         pvlist=['MEC:LAS:FLOAT:'+str(ii) for ii in range(14,21)];
         inddesclist=['AB','EF','GH','IJ','WEST (ABEF)','EAST (GHIJ)','Regen']
         desclist=[inddesc+' shutter state' for inddesc in inddesclist]
@@ -5208,10 +5629,17 @@ class TTL_shutter:
 
 
 class DG645:
+    """
+    Potential future class containing DG645-related utilities such as:
+        - take a snapshot of settings to be restored later with a restore function
+        - restore saved data from a snapshot function into the corresponding DG645
+        - perform snapshots of multiple DG boxes at the same, etc.
+        - change labels of channels to be more descriptive
+    """
 # =============================================================================
 #     def Refresh():
 #         """
-#         restores saved data from Snapshot function into the corresponding DG645
+#         
 #         """
 #         pvlist=[['MEC:LAS:DDG:0'+str(numii)+':'+chii+'DelaySI.DESC' for chii in ['a','c','e','g']] for numii in [1,2,6,8]];
 #         desclist=[['A:PS LATE','C:INH PS EARLY','E:unused','G: unused'],['A:PS EARLY','C:unused','E:EvoHE1','G:EvoHE2'],['A:GaiaQSW','C:GaiaLamp','E:INH UNI','G:GigE TRIG IN'],['A:BIG UNI','C:small UNI','E:INH GigE','G:unused']]
@@ -5256,14 +5684,8 @@ class DG645:
 #         return (DGnam, DGno)
 # 
 #     def ChannelDescription(DGbox):
-#         """ change labels of channels to be more descriptive """
+#         """  """
 #         pass
-# 
-# 
-# 
-# 
-# 
-# =============================================================================
     pass
 
 
@@ -5271,6 +5693,12 @@ class DG645:
 
 
 class SPL:#pointing, alignment, and other macros + automation routines
+    """
+    Potential future class containing SPL-related utilities such as:
+        - pointing functions
+        - aligment functions
+        - other macros + automation routines
+    """
     pass
 
 
@@ -5278,6 +5706,12 @@ class SPL:#pointing, alignment, and other macros + automation routines
 
 
 class UNIBLITZ:
+    """
+    Potential future class containing UNIBLITZ-related utilities such as:
+        - toggle system (DG boxes, etc.) triggering configurations (e.g. alignment vs SS vs burst modes, etc.)
+        - toggle shutter state
+        - toggle trigger state
+    """
 # =============================================================================
 #     def UNIBLITZconfig(modeReq):
 #         """
@@ -5361,14 +5795,25 @@ class UNIBLITZ:
 
 
 
-class Spectrometer:#Qminis
+class Spectrometer:
+    """
+    Potential future class containing spectrometer-related utilities such as:
+        - Qmini configuration
+        - Qmini readout
+        - floater Ocean Optics/other spectrometers?
+    """
     pass
 
 
 
 
 
-class VISAR:#(laser, streak cameras, etc.)
+class VISAR:
+    """
+    Potential future class containing VISAR-related utilities such as:
+        - laser triggering/any other EPICS-connected functions (may need to be expanded)
+        - streak cameras (timing or configuration with shot or whatever is useful)
+    """
     pass
 
 
@@ -5376,8 +5821,23 @@ class VISAR:#(laser, streak cameras, etc.)
 
 
 class CtrlSys:
+    """
+    Class for monitoring (and potentially controlling) laser-related control systems
+    Typical usage via CtrlSys.[command]
+    Possible commands include:
+        :cmp_checker #checks a list of relevant computers to see if they are pinging the network
+        :pv_checker #checks a list of relevant PVs for current RBV, to see if their IOCs/host are live, etc.
+    Potential future improvements:
+        - expand list of PVs checked in pv_checker
+        - add functionality for checking current PV RBV vs historical reference or allowed range
+        - consider adding functionality of ping, netconfig search, grep_pv, grep_ioc, serverStat, imgr, etc.
+    """
     @staticmethod
     def _plzchkpv(inpvnam):
+        """
+        internal function meant for checking PV read-back values, used as part of pv_checker
+        takes a single PV as input, outputs the message to be displayed as part of pv_checker
+        """
         try:
             currval=efc.rPV(inpvnam)
             msgout = str(currval)+' vs oldval'
@@ -5386,7 +5846,12 @@ class CtrlSys:
         return msgout
 
     @staticmethod
-    def _plzchksrv(inpvnam,printall=False):
+    def _plzchksrv(inpvnam):
+        """
+        internal function meant for checking server status, used as part of pv_checker
+        takes a single PV as input, outputs the message to be displayed as part of pv_checker
+        (internally uses grep_pv, grep_ioc, ping, and netconfig search to gather necessary information)
+        """
         pvnam=re.findall('^([^\.]+)',inpvnam);
         if len(pvnam)>0:
             iocnam=re.findall('/reg/d/iocData/(.+)/iocInfo',os.popen('grep_pv '+pvnam[0]).read());
@@ -5412,6 +5877,11 @@ class CtrlSys:
 
     @staticmethod
     def _plzchkcmp(cmpnam):
+        """
+        internal function meant for checking computer status as part of cmp_checker
+        takes a single computer name as input (e.g. from _MECcompylist()),
+            outputs the message to be displayed as part of cmp_checker
+        """
         try:
             netstat=os.system('ping -c 1 -w2 '+cmpnam[0]+' > /dev/null 2>&1')
             msgout=['{:<15}'.format(cmpnam[1])+'{:<28}'.format(cmpnam[0])+efc.cstr('{:<6}'.format(str('true ' if netstat==0 else 'false')),str('blink,r' if netstat!=0 else ''))]
@@ -5420,12 +5890,6 @@ class CtrlSys:
         return msgout
 
 # =============================================================================
-#     def plzchkcmp2(cmpnam):
-#         netstat=os.system('ping -c 1 -w2 '+cmpnam[0]+' > /dev/null 2>&1')
-#         msgout=['{:<15}'.format(cmpnam[1])+'{:<28}'.format(cmpnam[0])+efc.cstr('{:<6}'.format(str('true ' if netstat==0 else 'false')),str('blink,r' if netstat!=0 else ''))]
-#         return msgout
-# =============================================================================
-# =============================================================================
 #     @staticmethod
 #     def MECcompylist000():
 #         qqip=['172.21.46.147','172.21.46.148','172.21.46.146','172.21.46.60','172.21.46.128','172.21.46.100', '172.21.46.120','172.21.46.159', '172.21.46.197','172.21.46.142','172.21.46.70','172.21.46.78', '172.21.46.71','172.21.46.88','172.21.46.198','172.21.46.213','172.21.46.215','172.21.46.136', '172.21.46.218','172.21.46.219','172.21.46.182','172.21.46.144'];
@@ -5433,23 +5897,12 @@ class CtrlSys:
 #         nmlist=['mec-las-laptop06','mec-las-laptop07','mec-las-laptop05','scope-ics-mectc1-1','scope-ics-meclas-lecroy01','scope-ics-meclas-lecroy-a','scope-ics-meclas-lecroy-b','mec-las-laptop09','mec-las-laptop11','mec-las-laptop01','win-ics-mec-tundra','mec-las-laptop12','win-ics-mec-visar1','win-ics-mec-visar2','mec-las-vitara','mec-rga-laptop','scope-ics-mec-tektronix','mec-phasics-laptop01','win-ics-mec-phasics01','win-ics-mec-phasics02','mec-visar-cage','mec-las-laptop03']
 #         return list(zip(nmlist,qqip,qqn))
 # =============================================================================
-# =============================================================================
-#     @classmethod
-#     def cmp2_checker(cls):
-#         cmpmsg=[];
-#         #qqpl=[eacmp[0] for eacmp in MECcompylist()]
-#         qqpl=cls.MECcompylist2()
-#         with multiprocessing.Pool() as pool:
-#             cmpmsg=pool.map(cls.plzchkcmp2,qqpl)
-#         print('{:<15}'.format('Computer name')+'{:<28}'.format('IP shorthand')+'{:<6}'.format('Ping?'))
-#         for ii in range(len(cmpmsg)):
-#             print(''.join(cmpmsg[ii]))
-#         return
-# =============================================================================
-#also consider adding ping, netconfig search, grep_pv, grep_ioc, serverStat, imgr, etc.
 
     @staticmethod
     def _MECcompylist():
+        """
+        internal list of MEC computers to check as part of cmp_checker()
+        """
         qqn=['mec-laser','mec-monitor','mec-daq','mec-control','mec-console',
     'vitara','legend','evo1','evo2','gaia','topas',
     'PIMikroMove','spider','spectrometer','tundra',
@@ -5464,6 +5917,10 @@ class CtrlSys:
 
     @classmethod
     def cmp_checker(cls):
+        """
+        checks a list of critical MEC computers to see if they are pinging or not, prints the status report to terminal
+        (note: just because a machine is not pinging does not mean it is necessarily offline -- it may just not be responding to pings!)
+        """
         cmpmsg=[];
         #qqpl=[eacmp[0] for eacmp in MECcompylist()]
         qqpl=cls._MECcompylist()
@@ -5476,6 +5933,16 @@ class CtrlSys:
 
     @classmethod
     def pv_checker(cls,las='lpl'):
+        """
+        Checks a list of PVs critical for running either the MEC SPL or LPL laser systems
+        If no argument is provided, it is assumed that one wants to check the PVs for the LPL (hence las='lpl')
+        Instead, if las='spl' then the PVs for the SPL are checked instead
+        Note: list of PVs to be checked for the LPL or SPL laser can be edited in the files
+              GLOBAL.PSFILEPATH+'_ps_pvlist_lpl.txt' and GLOBAL.PSFILEPATH+'_ps_pvlist_spl.txt'
+        The function prints a report of the PV statuses, which includes PV name, IOC name, Host name, Host location, Ping?, and PV value?
+        Returns False if any of the PVs/hosts timeout or fail to ping
+        Returns True if none of the PVs/hosts timeout or fail to ping
+        """
         if las.lower() == 'lpl':
             qqpl=np.genfromtxt(GLOBAL.PSFILEPATH+'_ps_pvlist_lpl.txt',delimiter='\n',dtype=str);pvmsg=[];
         elif las.lower() == 'spl':
@@ -5499,6 +5966,11 @@ class CtrlSys:
 
                   
 class SCALLOPS:
+    """
+    Potential future class containing VISAR-related utilities such as:
+        - laser triggering/any other EPICS-connected functions (may need to be expanded)
+        - streak cameras (timing or configuration with shot or whatever is useful)
+    """
 # =============================================================================
 #       potential future work
 #       - port everything over from Bethany and Patin
@@ -5518,14 +5990,23 @@ class SCALLOPS:
 
 
 
-class LabEnv:#(air/rack/etc. temp/humidity/etc.) 
+class LabEnv:
+    """
+    Potential future class containing lab environment-related utilities such as:
+        - air/enclosure/rack temperature/humidity/etc.
+        - dust/particulate levels
+    """
     pass
 
 
 
 
 
-class RIS:#etc.
+class RIS:
+    """
+    Potential future class containing RIS-related utilities such as:
+        - easy RBV on state, radiation sensors, etc.
+    """
     pass
 
 
@@ -5533,6 +6014,10 @@ class RIS:#etc.
 
                   
 class PDU:
+    """
+    Potential future class containing PDU-related utilities such as:
+        - quick and unified access/configuration/toggling of lab PDUs
+    """
     pass
 
 
@@ -5540,6 +6025,16 @@ class PDU:
 
 
 class GLOBAL:
+    """
+    Class meant to serve like global variables for all other meclas classes
+    Idea is that only the contents of this class need to change if PV names change, calibrations or other
+        constants need to be updated, etc.
+    Typical usage via GLOBAL.[attribute] where attributes might be PVs, constants, arrays, strings, etc.
+    
+    Potential future improvements:
+        - convert more of the parameters above into GLOBAL attributes for the sake of simplicity, clarity, longevity
+        - add more restoration-type functions
+    """
     EYFE=EpicsSignal('MEC:LAS:FLOAT:01');
     ECD1w=EpicsSignal('MEC:LAS:FLOAT:02');
     EAB1w=EpicsSignal('MEC:LAS:FLOAT:03');
@@ -5585,6 +6080,17 @@ class GLOBAL:
     Ecoeff2in2wIJ=EpicsSignal('MEC:LAS:FLOAT:40')
     #(w/y/s1in1w/s42in1w/s42in2w/s + DateStr/today, RunNum, RunFilePath, PulseEnergies; notepadPVs: HAWG; YFE; 1w,2w,etc.; recipe  better than pickle?)
 
+    #last updated 20220128
+    EcoeffYFEval=0.3285 #was .3578
+    Ecoeff1in1wCDval=0.5871
+    Ecoeff2in1wABval=224.0
+    Ecoeff2in1wEFval=177.5
+    Ecoeff2in1wGHval=260.9826
+    Ecoeff2in1wIJval= 113.2
+    Ecoeff2in2wABval=134.0135
+    Ecoeff2in2wEFval=165.2398
+    Ecoeff2in2wGHval=194.1412
+    Ecoeff2in2wIJval=156.9307
     
     EcoeffRE1 = 1.64e5
     EcoeffRE0 = 1.03156061e-01 
@@ -5594,7 +6100,6 @@ class GLOBAL:
     EcoeffM10 = - 0.301
     EcoeffM21 = 1.05e5
     EcoeffM20 = - 1.39e-1 
-    
     
     PSNS=EpicsSignal('MEC:LAS:ARRAY:01')
     SSS=EpicsSignal('MEC:LAS:ARRAY:02')
@@ -5751,17 +6256,17 @@ class GLOBAL:
         efc.wPV('MEC:LAS:FLOAT:38.DESC', 'E_coeff_EF2w');
         efc.wPV('MEC:LAS:FLOAT:39.DESC', 'E_coeff_GH2w');
         efc.wPV('MEC:LAS:FLOAT:40.DESC', 'E_coeff_IJ2w');
-        #last updated 20220128
-        efc.wPV('MEC:LAS:FLOAT:31', 0.3285);#was .3578
-        efc.wPV('MEC:LAS:FLOAT:32', 0.5871);
-        efc.wPV('MEC:LAS:FLOAT:33', 224.0);
-        efc.wPV('MEC:LAS:FLOAT:34', 177.5);
-        efc.wPV('MEC:LAS:FLOAT:35', 260.9826);
-        efc.wPV('MEC:LAS:FLOAT:36', 113.2);
-        efc.wPV('MEC:LAS:FLOAT:37', 134.0135);
-        efc.wPV('MEC:LAS:FLOAT:38', 165.2398);
-        efc.wPV('MEC:LAS:FLOAT:39', 194.1412);
-        efc.wPV('MEC:LAS:FLOAT:40', 156.9307);
+
+        efc.wPV('MEC:LAS:FLOAT:31', cls.EcoeffYFEval);
+        efc.wPV('MEC:LAS:FLOAT:32', cls.Ecoeff1in1wCDval);
+        efc.wPV('MEC:LAS:FLOAT:33', cls.Ecoeff2in1wABval);
+        efc.wPV('MEC:LAS:FLOAT:34', cls.Ecoeff2in1wEFval);
+        efc.wPV('MEC:LAS:FLOAT:35', cls.Ecoeff2in1wGHval);
+        efc.wPV('MEC:LAS:FLOAT:36', cls.Ecoeff2in1wIJval);
+        efc.wPV('MEC:LAS:FLOAT:37', cls.Ecoeff2in2wABval);
+        efc.wPV('MEC:LAS:FLOAT:38', cls.Ecoeff2in2wEFval);
+        efc.wPV('MEC:LAS:FLOAT:39', cls.Ecoeff2in2wGHval);
+        efc.wPV('MEC:LAS:FLOAT:40', cls.Ecoeff2in2wIJval);
         
         efc.wPV('MEC:LAS:ARRAY:01', 'Psns pulse segment lengths:10')
         efc.wPV('MEC:LAS:ARRAY:02', 'SSs pulse segment endpoint pairs:20')
