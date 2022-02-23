@@ -1,39 +1,38 @@
-# =============================================================================
-#              meclas.py
-# Package for running various laser utilities in MEC
-# Apologies on behalf of: Eric Cunningham (and others)
-#
-# To load: use import meclas or use IPython's %run magic function
-#
-# Class list and brief description:
-#    LPL -- routines for LPL pulse shaping (with some aux functions), data acquisition, etc.
-#      efc -- extra function class, holds many useful utilities and shortcuts
-#      HAWG -- Highland AWG control and readout
-#      LOSC -- LeCroy oscilloscope trace read-out, plotting, saving, etc.
-#      EMeters -- LPL and SPL energy meters
-#      MBC -- LPL bias controller utilities
-#      YFE -- LPL YLF Front End seed laser utilities
-#      PFN -- LPL Pulse Forming Network cap bank charging utilities
-#      HWP -- LPL Half Wave Plate motor utilities
-#    **Stage -- Newport and SmarAct stage utilities
-#    **Timing -- ns and fs timing utilities
-#      CAM -- functions for GigE camera acquisition, configuration, etc.
-#      TTL_shutter -- Beckhoff utilities for controlling/tracking Thorlabs TTL shutters
-#    **DG645 -- functions for DG645 operation, parameter backup and restoration, etc.
-#    **SPL -- routines for SPL alignment, etc. 
-#    **UNIBLITZ -- UNIBLITZ shutter utilities for setting SPL trigger modes, etc.
-#    **Spectrometer -- functions for Qmini and Ocean Optics USB4000 spectrometers
-#    **VISAR -- routines for VISAR timing, streak camera configuration, laser control, etc.
-#      CtrlSys -- routines for checking responsivity of PVs, hosts, hutch computers, etc.
-#    **SCALLOPS -- routines for LPL pulse shaping simulations
-#    **LabEnv -- functions for interfacing with lab environment monitors
-#    **RIS -- functions for monitoring RIS-related systems and PVs
-#    **PDU -- functions for operating power distribution units
-#      GLOBAL -- home for global constants, PV definitions, etc.
-#    
-#    ** = FUTURE DEVELOPMENT
-# =============================================================================
+"""
+             meclas.py
+Package for running various laser utilities in MEC
+Apologies on behalf of: Eric Cunningham (and others)
 
+To load: use import meclas or use IPython's %run magic function
+
+Class list and brief description:
+     LPL -- routines for LPL pulse shaping (with some aux functions), data acquisition, etc.
+     efc -- extra function class, holds many useful utilities and shortcuts
+     HAWG -- Highland AWG control and readout
+     LOSC -- LeCroy oscilloscope trace read-out, plotting, saving, etc.
+     EMeters -- LPL and SPL energy meters
+     MBC -- LPL bias controller utilities
+     YFE -- LPL YLF Front End seed laser utilities
+     PFN -- LPL Pulse Forming Network cap bank charging utilities
+     HWP -- LPL Half Wave Plate motor utilities
+   **Stage -- Newport and SmarAct stage utilities
+   **Timing -- ns and fs timing utilities
+     CAM -- functions for GigE camera acquisition, configuration, etc.
+     TTL_shutter -- Beckhoff utilities for controlling/tracking Thorlabs TTL shutters
+   **DG645 -- functions for DG645 operation, parameter backup and restoration, etc.
+   **SPL -- routines for SPL alignment, etc. 
+   **UNIBLITZ -- UNIBLITZ shutter utilities for setting SPL trigger modes, etc.
+   **Spectrometer -- functions for Qmini and Ocean Optics USB4000 spectrometers
+   **VISAR -- routines for VISAR timing, streak camera configuration, laser control, etc.
+     CtrlSys -- routines for checking responsivity of PVs, hosts, hutch computers, etc.
+   **SCALLOPS -- routines for LPL pulse shaping simulations
+   **LabEnv -- functions for interfacing with lab environment monitors
+   **RIS -- functions for monitoring RIS-related systems and PVs
+   **PDU -- functions for operating power distribution units
+     GLOBAL -- home for global constants, PV definitions, etc.
+   
+   ** = FUTURE DEVELOPMENT
+"""
 
 ### load packages
 import socket
@@ -71,11 +70,50 @@ class LPL:
     """
     Stores functions related to LPL pulse shaping, data acquisition, etc.
     Functions include:
-        LinearWave(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height)
-        LinearWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002)
-        ParabolicWave2(Edge1PixNo,Edge1Height,MidPixNo,MidHeight,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002)
-        ExponentialWave2(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height,offsetQ=0,arraylenQ=5002)
-    potential future work
+        :LinearWave #function for linear waveforms appropriate for loading to the Highland AWG
+        :LinearWave2 #function for linear waveforms of variable length, appropriate for specifying targeted pulse shapes
+        :ParabolicWave2 #function for parabolic waveforms of variable length, appropriate for specifying targeted pulse shapes
+        :ExponentialWave2 #function for exponential waveforms of variable length, appropriate for specifying targeted pulse shapes
+        :EW2 #shorthand version of ExponentialWave2 tailored for facilitating LPL shaping at 10Hz
+        :EW2string #same as above but produces strings for the benefit of saving wave hints in recipes
+        :ComboWave #combines waveforms for pulse shaping goals
+        :TraceFormatting #projects/downsamples waveforms from one horizontal base to another
+        :UpdatingShapingAlgorithm #calculates new Highland input based on old input, its corresponding output, and a target
+        :FixEdges #allows tweaking of behavior of points near waveform discontinuities (edges and steps)
+        :smooth_wvfm #locally smooths an input waveform as an option as part of pulse shaping
+        :PulseGoal #helps define a targeted waveform for the full energy output
+        :PulseMax #helps set the desired amplitude of PulseGoal based on shape and desired output energy
+        :Psns_get #retrieves the list of pulse segment durations of the current targeted output pulse
+        :Psns_set #sets the list of pulse segment durations of a new targeted output pulse
+        :SSs_get #retrieves the list of pulse segment start/stop heights of the current targeted output pulse
+        :SSs_set #sets the list of pulse segment start/stop heights of a new targeted output pulse
+        :YSSs_get #retrieves the list of YFE exponential pulse segment start/stop heights of the current targeted 10Hz output pulse
+        :YSSs_set #sets the list of YFE expnential pulse segment start/stop heights of a new targeted 10Hz output pulse
+        :wIter2 #wrapper function for using UpdatingShapingAlgorithm in context
+        :weichall #generates weighted waveforms for YFE, 1in1w, 4x2in1w, and 4x2in2w outputs using scopes and energy meters
+        :weichToPowerVsTime #converts energy-weighted waveforms into a tuple of instantaneous power vs time
+        :PGToPowerVsTime #converts scaled PulseGoal waveforms into a tuple of instantaneous power vs time
+        :pshostcheck #checks the host of the current computer to verify it is a machine with all the proper network access for pulse shaping
+        :DateString #shortcut for generating a string of today's date
+        :get_curr_exp #retrieves the current experiment name in MEC
+        :get_curr_run #retrieves the current run number in MEC
+        :psheaders #prepares the groundwork for pulse shaping exercises
+        :psacqx #acquires data after taking a shot
+        :psefc #plots most-recent shot compared to its goal and returns a suggestion for a new input waveform
+        :psefc10Hz #performs pulse shaping at 10Hz to converge towards an input goal for the YFEE output
+        :psupd #shortcut for updating the Highland waveform
+        :psloadwvfm #loads a previously-saved pulse shaping recipe
+        :pssavewvfm #saves a new pulse shaping recipe
+        :psviewwvfm #displays a previously-saved pulse shaping recipe
+        :psrefrwvfm #refreshes a previously-saved pulse shaping recipe to account for system drift
+        :psrecipes #lists all previously-saved pulse shaping recipes
+        :psmenu #allows loading or viewing of previously-saved pulse shaping recipes from a list
+        :pspreshot #executes routine that prepares the state of the laser and its diagnostics for a full-energy shot
+        :pspostshot #executes routine that records all data after a full-energy shot and returns the laser to a stand-by state
+        :SHG_opt #executes the optimization routine for the SHG crystal angles of all four arms of the LPL
+        
+            
+    Potential future work includes:
        - put all the stuff Galtier wants to do inside lpl
            - LPL.On() instead of YFE.On(), e.g.
            - same for seeing shapes, changing energy, etc.
@@ -462,6 +500,11 @@ class LPL:
         for ii in range(SegTotQ):
             SegmentsQ.append(cls.LinearWave(int(BeginPix+(DurListQ[ii]*4)),int(20000.*SSListQ[ii][0]/100.),int(BeginPix+(DurListQ[ii+1]*4)-1),int(20000.*SSListQ[ii][1]/100.)))
         return np.append(np.delete(np.array(cls.ComboWave(SegmentsQ)),np.array(DelListQ).astype(int)),[0]*len(DelListQ))
+
+    @classmethod
+    def PulseMax(cls,DurationListQ,StartStopListQ,zzJQ):
+        """Gets amplitude setting for segmented, arbitrary PulseGoal using Duration and Start/Stop lists and targeted energy"""
+        return (1.0*StartStopListQ[-1][-1]/100.)*(50.0*zzJQ/(5.0*500.0*np.sum(cls.PulseGoal(DurationListQ,StartStopListQ))))
     
     def Psns_get():
         """
@@ -570,11 +613,6 @@ class LPL:
         else:
             print('Unexpected shape! Failed to write new YSSs values!')
             return False
-            
-    @classmethod
-    def PulseMax(cls,DurationListQ,StartStopListQ,zzJQ):
-        """Gets amplitude setting for segmented, arbitrary PulseGoal using Duration and Start/Stop lists and targeted energy"""
-        return (1.0*StartStopListQ[-1][-1]/100.)*(50.0*zzJQ/(5.0*500.0*np.sum(cls.PulseGoal(DurationListQ,StartStopListQ))))
 
     @classmethod
     def wIter2(cls,sQ,wQ,DurationListQ,StartStopListQ,zzJQ,mapnowQ,stepQQ,Hdisplay=False):
@@ -2068,7 +2106,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20220215a')
+        print('Last stamped: 20220223a')
         
     def reloadpkg():
         """
@@ -2307,20 +2345,23 @@ class efc:
 #         plt.ioff()
 # =============================================================================
     
-    def rPV(yourPV):
+    def rPV(yourPV,display=True):
         """
         Convenient short-hand way to read out and return the value from a PV
         Input yourPV needs to be formatted as a string
+        If display=True then any readout failures are printed to terminal
+        If display=False then there is no printout (used mainly in report generation while checking many PVs)
         """
         try:
             temppv=EpicsSignal(yourPV);
             tempval=temppv.get()
             return tempval
         except:
-            print('Failed: {}!'.format(yourPV))
+            if display:
+                print('Read-out failed: {}!'.format(yourPV))
             return False
         
-    def wPV(yourPV, yourVal):
+    def wPV(yourPV, yourVal, display=True):
         """
         Convenient short-hand way to write a value to a PV
         Input yourPV needs to be formatted as a string
@@ -2330,7 +2371,8 @@ class efc:
             temppv=EpicsSignal(yourPV);
             temppv.put(yourVal)
         except:
-            print('Failed:{} and {}!'.format(yourPV, yourVal))
+            if display:
+                print('Write failed:{} and {}!'.format(yourPV, yourVal))
         return 
     
 # =============================================================================
@@ -4521,7 +4563,7 @@ class YFE:
                 print('Fault cleared!')
         if CtrlChk == True:
             print('Checking LPL controls status (~10sec)!')
-            PVsuccess = CtrlSys.pv_checker(las='lpl')
+            PVsuccess = CtrlSys.pv_checker(pv='lpl')
             if not PVsuccess:
                 print('Control error detected! Continue with system turn-on? [y/n]')
                 checkprompt = efc.getch_with_TO(TOsec=10,display=False)
@@ -5839,8 +5881,14 @@ class CtrlSys:
         takes a single PV as input, outputs the message to be displayed as part of pv_checker
         """
         try:
-            currval=efc.rPV(inpvnam)
-            msgout = str(currval)+' vs oldval'
+            currval=efc.rPV(inpvnam,display=False)
+            if currval == False:
+                msgout='rPV fail!'
+            else:
+                currvalstr=str(currval)
+                if len(currvalstr) > 10:
+                    currvalstr=currvalstr[:10]+'...'
+                msgout = currvalstr+' vs oldval'
         except TimeoutError as err:
             msgout = 'Timeout!';err;
         return msgout
@@ -5932,32 +5980,44 @@ class CtrlSys:
         return
 
     @classmethod
-    def pv_checker(cls,las='lpl'):
+    def pv_checker(cls,pv='lpl'):
         """
-        Checks a list of PVs critical for running either the MEC SPL or LPL laser systems
-        If no argument is provided, it is assumed that one wants to check the PVs for the LPL (hence las='lpl')
-        Instead, if las='spl' then the PVs for the SPL are checked instead
+        Checks a list of PVs critical for running either the MEC SPL or LPL laser systems or any user-supplied PV(s)
+        If no argument is provided, it is assumed that one wants to check the PVs for the LPL (hence pv='lpl')
+        Instead, if pv='spl' then the PVs for the SPL are checked instead
         Note: list of PVs to be checked for the LPL or SPL laser can be edited in the files
               GLOBAL.PSFILEPATH+'_ps_pvlist_lpl.txt' and GLOBAL.PSFILEPATH+'_ps_pvlist_spl.txt'
+        
         The function prints a report of the PV statuses, which includes PV name, IOC name, Host name, Host location, Ping?, and PV value?
         Returns False if any of the PVs/hosts timeout or fail to ping
         Returns True if none of the PVs/hosts timeout or fail to ping
         """
-        if las.lower() == 'lpl':
-            qqpl=np.genfromtxt(GLOBAL.PSFILEPATH+'_ps_pvlist_lpl.txt',delimiter='\n',dtype=str);pvmsg=[];
-        elif las.lower() == 'spl':
-            qqpl=np.genfromtxt(GLOBAL.PSFILEPATH+'_ps_pvlist_spl.txt',delimiter='\n',dtype=str);pvmsg=[];
+
+        if (pv.lower() == 'lpl'):
+            qqpl=np.genfromtxt(GLOBAL.PSFILEPATH+'_ps_pvlist_lpl.txt',delimiter='\n',dtype=str);
+        elif (pv.lower() == 'spl'):
+            qqpl=np.genfromtxt(GLOBAL.PSFILEPATH+'_ps_pvlist_spl.txt',delimiter='\n',dtype=str);
         else:
-            print('No such laser!');return
+            if (not isinstance(pv, tuple)) and (not isinstance(pv, list)):
+                if isinstance(pv, str):
+                    qqpl=(pv,);
+                else:
+                    print('Please input a valid PV or list of PVs to check!')
+                    return False
+            else:
+                qqpl=pv;
+        
+        pvmsg=[];
         for eapv in qqpl:
-            pvmsg.append(cls._plzchkpv(eapv))
+            pvret=cls._plzchkpv(eapv)
+            pvmsg.append(efc.cstr(pvret,'BRR,BLINK' if (pvret in ('rPV fail!','Timeout!')) else ''))
         with multiprocessing.Pool() as pool:
             srvmsg=pool.map(cls._plzchksrv,qqpl)
         print(''.join(['{:<34}'.format('PV name'),'{:<26}'.format('IOC name'),'{:<19}'.format('Host name'),'{:<25}'.format('Host location'),'{:<6}'.format('Ping?'),'{:<15}'.format('PV value?')]))
         for ii in range(len(pvmsg)):
             fullmsg=''.join(srvmsg[ii])+pvmsg[ii]
             print(fullmsg)
-        if any(errmsg in fullmsg for errmsg in ('Timeout','Fail')):
+        if any(errmsg in fullmsg for errmsg in ('Timeout','Fail', 'false', 'False')):
             return False
         else:
             return True
@@ -6129,10 +6189,10 @@ class GLOBAL:
     HWPEFclr=EpicsSignal('MEC:NS1:MMS:01:SEQ_SELN');#clear start for mforce chassis
     
     
-    EVRLPLLAMPEC=EpicsSignal(read_pv='EVR:MEC:USR01:TRIG6:EC_RBV',write_pv='EVR:MEC:USR01:TRIG6:TEC')#LPL lamp event code; needs 182
-    EVRLPLLAMPEN=EpicsSignal('EVR:MEC:USR01:TRIG6:TCTL') #LPL lamp enable;
-    EVRLPLSSEC=EpicsSignal(read_pv='EVR:MEC:USR01:TRIG7:EC_RBV', write_pv='EVR:MEC:USR01:TRIG7:TEC')#LPL slicer event code; needs 182 or 43 typically
-    EVRLPLSSEN=EpicsSignal('EVR:MEC:USR01:TRIG7:TCTL') #LPL slicer enable;
+    EVRLPLLAMPEC=EpicsSignal(read_pv='MEC:LAS:EVR:01:TRIG7:EC_RBV',write_pv='MEC:LAS:EVR:01:TRIG7:TEC')#LPL lamp event code; needs 182
+    EVRLPLLAMPEN=EpicsSignal('MEC:LAS:EVR:01:TRIG7:TCTL') #LPL lamp enable;
+    EVRLPLSSEC=EpicsSignal(read_pv='MEC:LAS:EVR:01:TRIG8:EC_RBV', write_pv='MEC:LAS:EVR:01:TRIG8:TEC')#LPL slicer event code; needs 182 or 43 typically
+    EVRLPLSSEN=EpicsSignal('MEC:LAS:EVR:01:TRIG8:TCTL') #LPL slicer enable;
     
     EGSPLRE=EpicsSignal('MEC:LAS:GENTEC:07:CH1:MEAS')
     EGSPLTO=EpicsSignal('MEC:LAS:GENTEC:07:CH2:MEAS')
