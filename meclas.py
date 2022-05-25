@@ -980,7 +980,7 @@ class LPL:
         ##EXECUTE THIS FILE FIRST TO DETERMINE THE UPDATED WAVEFORM
 
     @classmethod
-    def psefc10Hz(cls,pwt='curr',numIterQ=50,AQQ=0.03,displayPlot=True,reloopPrompt=True,YFEbkgrdY=-.004,PtNumFront=3,PtNumBack=2,CorrFactorFront=.97,CorrFactorBack=1.0):
+    def psefc10Hz(cls,pwt='curr',numIterQ=50,AQQ=0.03,displayPlot=True,reloopPrompt=True,YFEbkgrdY=-.004,PtNumFront=3,PtNumBack=2,CorrFactorFront=.97,CorrFactorBack=1.0,avgfwhm=9,avgrange=1):
         """
         Looks at last 10Hz YFE waveform, calculates new suggested update to Highland AWG to step towards pulse waveform target pwt
         Also generates side-by-side plots of current YFE waveform & pwt (left) and of residual difference between the two (right)
@@ -995,15 +995,15 @@ class LPL:
         YFEbkgrdY applies an offset of the YFE diode trace vs pwt; use if noise floor of diode trace does not line up with pwt background
         CorrFactorFront,CorrFactorBack,PtNumFront,PtNumBack are all useful if one desires to use LPL._FixEdges while converging on pwt
         """
-        avgfwhm=9;avgrange=3;#25;
+        #avgfwhm=9;avgrange=1;#25;
         if GLOBAL.EVRLPLSSEC.get() != 43:
-            GLOBAL.EVRLPLSSEN.put(0)
-            GLOBAL.EVRLPLSSEC.put(43)
+            GLOBAL.EVRLPLSSEN.put(0);time.sleep(0.5);
+            GLOBAL.EVRLPLSSEC.put(43);time.sleep(0.5);
         if GLOBAL.EVRLPLSSEN.get() != 1:
             print('Pulse slicer not enabled! Enable now? [y/n]')
             checkprompt=efc.getch_with_TO(TOsec=10,display=False)
             if checkprompt in ('y','Y'):
-                GLOBAL.EVRLPLSSEN.put(1)
+                GLOBAL.EVRLPLSSEN.put(1);time.sleep(0.5);
             else:
                 print('Please try again later then!')
                 return False
@@ -1011,7 +1011,7 @@ class LPL:
             print('Bias dither enabled! Disable now? [y/n]')
             checkprompt=efc.getch_with_TO(TOsec=10,display=False)
             if checkprompt in ('y','Y'):
-                GLOBAL.MBCmode.put(1)
+                GLOBAL.MBCmode.put(1);time.sleep(0.5);
             else:
                 print('No? Enjoy your energy and shape fluctuations then, I guess... :/')
         Psns=cls._Psns_get()#pickle.load(open(psfpQ+'Psns.p','rb'))
@@ -1022,9 +1022,23 @@ class LPL:
         GLOBAL.WVFMYFEGOAL.put(pwtF)
 
         try:
-            SLA=LOSC('A');efc.ssleep();SLA._Open();efc.ssleep();SH=HAWG();efc.ssleep();SH._Open();#replaced w/LeCroyA
+            SLA=LOSC('A');efc.ssleep();SLA._Open();efc.ssleep();SH=HAWG();efc.ssleep();SH._Open();efc.ssleep();#replaced w/LeCroyA
+            tempwv=SH._ReadPulseHeights();efc.ssleep();
+            SH._WritePulseHeights(140*[0]);efc.ssleep();
+            bkgrdnum=20;
+            iiter=0;
+            while (np.sum(SLA._rch(1)) > 1) and iiter < 20:
+                print('Warning: looks like the background did not clear!!')
+                iiter+=1
+            time.sleep(.1);
+            YFEbkgrdY=0*np.array(SLA._rch(1));efc.ssleep();
+            print('Acquiring background...')
+            for ii in range(bkgrdnum):
+                YFEbkgrdY += (np.array(SLA._rch(1))/bkgrdnum); time.sleep(0.1);
+            SH._WritePulseHeights(tempwv);time.sleep(1);
+                    
             ops00=SLA._rch(1)-YFEbkgrdY;time.sleep(0.1);
-
+            print('..')
             meanerr=[]
             meanerr.append(np.sum(np.abs(pwtF[:26]-cls._TraceFormatting(ops00,GLOBAL.LMapAB,1,AvgRange=avgrange,FWHM=avgfwhm)[:26])/(pwtF[:26]+1e-3))/len(pwtF[:26]))
             ops00F=cls._TraceFormatting(ops00,GLOBAL.LMapAB,1,AvgRange=avgrange,FWHM=avgfwhm)
@@ -1429,18 +1443,18 @@ class LPL:
             #    print('MBC is not safe! Resetting the MBC...')#problem is here...
             #    resetMBC();
             #set and enable 10Hz output
+            print('Set and enable 10Hz output')
             if GLOBAL.EVRLPLSSEC.get() != 43:
-                GLOBAL.EVRLPLSSEN.put(0)
-                GLOBAL.EVRLPLSSEC.put(43)
+                GLOBAL.EVRLPLSSEN.put(0);time.sleep(0.75);
+                GLOBAL.EVRLPLSSEC.put(43);time.sleep(0.75);
             if GLOBAL.EVRLPLSSEN.get() != 1:
-                GLOBAL.EVRLPLSSEN.put(1)
+                GLOBAL.EVRLPLSSEN.put(1);time.sleep(0.75);
             #run the update code
             print('Refreshing the YFE wavefront...')
             cls.psefc10Hz(pwt=yfegoal,numIterQ=numStepsQ,AQQ=stepSizeQ,displayPlot=displayPlot,reloopPrompt=reloopPrompt,YFEbkgrdY=YFEbkgrdY)
             #reset to single shot on pulse picker
-            GLOBAL.EVRLPLSSEN.put(0);time.sleep(0.5);
-            GLOBAL.EVRLPLSSEC.put(182);time.sleep(0.5);
-            GLOBAL.EVRLPLSSEN.put(1)
+            GLOBAL.EVRLPLSSEC.put(182);time.sleep(0.75);
+            GLOBAL.EVRLPLSSEN.put(1);time.sleep(0.75);
             #re-open shutters
             print('Opening all shutters...')
             TTL_shutter.Toggle('openall',display=False);#open all the shutters
@@ -1448,9 +1462,8 @@ class LPL:
             YFE.SetAll(True,displayQ=False);
         except:#used to make sure shutters re-open even in case of error or KeyboardInterrupt
             #reset to single shot on pulse picker
-            GLOBAL.EVRLPLSSEN.put(0);time.sleep(0.5);
-            GLOBAL.EVRLPLSSEC.put(182);time.sleep(0.5);
-            GLOBAL.EVRLPLSSEN.put(1)
+            GLOBAL.EVRLPLSSEC.put(182);time.sleep(0.75);
+            GLOBAL.EVRLPLSSEN.put(1);time.sleep(0.75);
             #re-open shutters
             #print('Opening all shutters...')
             #toggle_TTL_shutter('openall',display=False);#open all the shutters
@@ -1519,7 +1532,7 @@ class LPL:
     
 
     @classmethod
-    def pspreshot(cls):
+    def pspreshot(cls,MBC_bypass=False):
         """
         Prepares and checks state of the laser for taking a single full-energy shot
         Because of checks/safeguards, this is the preferred function to use before taking a shot
@@ -1550,11 +1563,14 @@ class LPL:
                 print('WARNING: MBC not responding!!')
                 prechk = False
         else:
-            print('MBC is not safe! Resetting the MBC...')
-            MBC.Reset();##up above, check emission AND check currents???
-            YFE.SetAll(True,displayQ=False)
-            returnval=cls.pspreshot()
-            return returnval
+            if not MBC_bypass:
+                print('MBC is not safe! Resetting the MBC...')
+                MBC.Reset();##up above, check emission AND check currents???
+                YFE.SetAll(True,displayQ=False)
+                returnval=cls.pspreshot()
+                return returnval
+            else:
+                prechk = True
         if GLOBAL.CurrShape.get().lower() == 'yfeedge':
             print('{}{}'.format(efc.cstr('WARNING: ','BRW,BBRR'),
                                 efc.cstr('last loaded pulse was YFEedge! Are you SURE you want to continue? [y/n]','BRW,BBRR')))
@@ -1564,16 +1580,16 @@ class LPL:
             else:
                 print('Good choice. Please try again when you are ready.')
                 return False
-        if GLOBAL.EVRLPLLAMPEC.get() != 182:
-            GLOBAL.EVRLPLLAMPEN.put(0)
-            GLOBAL.EVRLPLLAMPEC.put(182)
-        if GLOBAL.EVRLPLSSEC.get() != 182:
-            GLOBAL.EVRLPLSSEN.put(0)
-            GLOBAL.EVRLPLSSEC.put(182)
-        if GLOBAL.EVRLPLLAMPEN.get() != 1:
-            GLOBAL.EVRLPLLAMPEN.put(1)
-        if GLOBAL.EVRLPLSSEN.get() != 1:
-            GLOBAL.EVRLPLSSEN.put(1)
+        #if GLOBAL.EVRLPLLAMPEC.get() != 182:
+            #GLOBAL.EVRLPLLAMPEN.put(0)
+        GLOBAL.EVRLPLLAMPEC.put(182)
+        #if GLOBAL.EVRLPLSSEC.get() != 182:
+            #GLOBAL.EVRLPLSSEN.put(0)
+        GLOBAL.EVRLPLSSEC.put(182)
+        #if GLOBAL.EVRLPLLAMPEN.get() != 1:
+        GLOBAL.EVRLPLLAMPEN.put(1)
+        #if GLOBAL.EVRLPLSSEN.get() != 1:
+        GLOBAL.EVRLPLSSEN.put(1)
         
         wppvlist=[GLOBAL.HWPAB, GLOBAL.HWPEF, GLOBAL.HWPGH, GLOBAL.HWPIJ];
         headstr='';wpstr='';headlist=['AB','EF','GH','IJ'];
@@ -2148,7 +2164,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20220227a')
+        print('Last stamped: 20220414a')
         
     def reloadpkg():
         """
@@ -3662,6 +3678,9 @@ class LOSC:
         elif str(LStrQ).lower() == '2':
             self._hostIP = '172.21.46.128'#'scope-ics-meclas-lecroy-02'
             self._name = 'LeCroy2'
+        elif str(LStrQ).lower() == 'l':
+            self._hostIP = '172.21.160.252'#'scope-ics-meclas-lecroy-02'
+            self._name = 'LeCroyL'
         else:
             print('Invalid scope name! Choose 1, 2, A, or B!!')
             return False
@@ -4130,8 +4149,11 @@ class LOSC:
         (msg='*RCL 3',SendOnly=False)
         (msg='TDIV 100E-9',SendOnly=True)
         (msg='C1:VDIV 500E-3',SendOnly=True)
+        NOTE: ignore the backslash before the triple quotes below if you are reading the bare code... it is there to avoid closing the docstring
         (msg=r\"""vbs 'app.acquisition.triggermode = "single" ' \""",SendOnly=True)
         (msg=r\"""vbs 'app.acquisition.c1.deskew = 0 ' \""",SendOnly=True)
+        (msg=r\"""vbs 'app.acquisition.c2.AverageSweeps = 10 ' \""",SendOnly=True)
+        (msg=r\"""vbs 'app.acquisition.c2.EnhancedResType = 2 ' \""",SendOnly=True) #0:None, 1:0.5bits, 2: 1.0bits, ..., 6: 3.0bits
         """
         self._send_and_reply(msg,SendOnly=SendOnly)
     
@@ -5019,7 +5041,7 @@ class HWP:
         plt.ion()
         fig,axs=plt.subplots(2,2,gridspec_kw={'hspace':0.4,'wspace':0.3})
         xdat=[[startposlist[ii]+(-rangeQ+stepQ*(jj)) for jj in range(int(1+(2*rangeQ/stepQ)))] for ii in range(4)]
-        ydat=[[0]*11 for ii in range(4)]
+        ydat=[[0]*int(1+(2*rangeQ/stepQ)) for ii in range(4)]
         ax1,=axs[0,0].plot(xdat[0],ydat[0]); axs[0,0].set_xlabel('AB'); plt.pause(0.01);
         ax2,=axs[0,1].plot(xdat[1],ydat[1]); axs[0,1].set_xlabel('EF'); plt.pause(0.01);
         ax3,=axs[1,0].plot(xdat[2],ydat[2]); axs[1,0].set_xlabel('GH'); plt.pause(0.01);
@@ -5102,6 +5124,7 @@ class Stage:
     Stores functions related to stages and motors
     Current functions include:
         :NewportInitRefAll #useful routine for recovering from Newport outage -- initializes and references all channels
+        :NewportBrowserCtrl #internal function meant for launching the Newport broswer controller
     Potential future work:
         -SmarAct motor utilities
         -motor setting snapshots
@@ -5117,7 +5140,35 @@ class Stage:
             for eapv in rpvlist:
                 eapv.put(1)
         except:
-            print('Failed!') 
+            print('Failed!')
+    
+    def NewportBrowserCtrl(inpvnam):
+        """
+        internal function meant for launching the Newport broswer controller
+        takes a single Newport motor PV as input, opens a firefox session of the crate with the corresponding XPS driver
+        Example: Stage.NewportBrowserCtrl('MEC:LAS:MMN:25.RBV') opens the admin controls for mcn-mec-las4 in a firefox browser
+        """
+        
+        pvno=re.findall('^MEC:(LAS|PPL):MMN:([\d]+)',inpvnam);
+        if len(pvno)>0:
+            try:
+                pvnoint=int(pvno[0][1])
+                #print('PV number int: {}, attempting to read {}'.format(pvnoint,'MEC:LAS:MMN_{:02}{:02}.CTRL'.format((8*(pvnoint//8))+1,8*((pvnoint//8)+1))))
+                ipaddr=efc.rPV('MEC:{}:MMN_{:02}{:02}.CTRL'.format(pvno[0][0],(8*(pvnoint//8))+1,8*((pvnoint//8)+1)))
+                #print('IP address shorthand: {}'.format(ipaddr))
+                rawipaddr=re.findall('IP: (.+)\n', os.popen('netconfig search '+ipaddr).read());
+                #print('Raw IP address shorthand: {}'.format(rawipaddr[0]))
+                #print('firefox --new-window http://{}'.format(rawipaddr[0]))
+                os.system('firefox --new-window http://{}'.format(rawipaddr[0]))
+                
+                print('Reminder: username/password are Administrator/Administrator')
+            except:
+                print('Process failed!')
+                return False
+        else:
+            print('Bad PV, please try again!')
+
+
                   
 
 
@@ -5142,8 +5193,8 @@ class CAM:
     List of possible commands includes:
         :Name #helps with names and naming conventions of all cameras in MEC
         :View #quickly view a single camera or multiple cameras in a python window
-        :Config #quickly view a single camera in a python window
-        :ConfigCurrent #quickly view a single camera in a python window
+        :Config #configures plug-ins for a given camera
+        :ConfigReset #refreshes all current camera configurations
     Potential future work:
         - save images to file easily 
         - (also in connection with scan parameters)
@@ -5432,8 +5483,8 @@ class CAM:
             7: Counts #uses Python to calculate and display camera's Max and Total counts on-screen
             8: AlignmentOK #displays a conditional message depending on if the misalignment exceeds the MisalignmentTolerance or not
         
-        Nominal values for the MEC SPL camera configurations are kept in ConfigCurrent(); if things get screwed up (because sometimes
-        the IOC just has a bad day and screws everything up), you can run ConfigCurrent() and *hopefully* get back to normal
+        Nominal values for the MEC SPL camera configurations are kept in ConfigReset(); if things get screwed up (because sometimes
+        the IOC just has a bad day and screws everything up), you can run ConfigReset() and *hopefully* get back to normal
         """
         PVhead=cls.Name(CAMreq)
         efc.wPV('{}:Acquire'.format(PVhead),0)#hopefully prevents IOC crashes, per TylerJ
@@ -5581,7 +5632,10 @@ class CAM:
 # =============================================================================
 
     @classmethod
-    def ConfigCurrent(cls):#not sure why these change sometimes -- config file somewhere? camera problem? 
+    def ConfigReset(cls):#not sure why these change sometimes -- config file somewhere? camera problem? 
+        """
+        executes the Config function serially on SPL1-10 with their own default values
+        """
         cls.Config(CAMreq='Legend',RefXhairXY=[359,251],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[100,100],LIVE=False,InstructionStr='DO NOT tune to xhair!')
         cls.Config(CAMreq='StrInA',RefXhairXY=[335,257],MisalignmentTolerance=25,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM0 (NOT SM1!) to put centroid on xhair!')
         cls.Config(CAMreq='StrInB',RefXhairXY=[334,243],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM2 to put centroid on xhair!')
@@ -5915,6 +5969,7 @@ class CtrlSys:
         - expand list of PVs checked in pv_checker
         - add functionality for checking current PV RBV vs historical reference or allowed range
         - consider adding functionality of ping, netconfig search, grep_pv, grep_ioc, serverStat, imgr, etc.
+        - when pinging motors, check the control box itself too? (see Stage.NewportBrowserCtrl)
     """
     @staticmethod
     def _plzchkpv(inpvnam):
