@@ -2027,7 +2027,7 @@ class ep:
                 print('Unrecognized format on input file.')
         return ListedValues
 
-    def ll(llist):
+    def ll(llist,xlb='none',ylb='none',xlim='none',ylim='none'):
         """
         Shorthand plotting function for a list of multiple lists of y-values
         Example: ep.ll([[1,2,4],[2,7,5],[8,4,2]]) plots three traces over the top of each other:
@@ -2036,6 +2036,20 @@ class ep:
         df1=plt.figure()
         for ii in range(len(llist)):
             plt.plot(llist[ii]);
+        if xlb != 'none':
+            plt.xlabel(xlb)
+        if ylb != 'none':
+            plt.ylabel(ylb)
+        if xlim != 'none':
+            try:
+                plt.xlim(xlim)
+            except:
+                pass
+        if ylim != 'none':
+            try:
+                plt.ylim(ylim)
+            except:
+                pass
         df1.show()
         
     def llxy(llistxyq,xlb='none',ylb='none',xlim='none',ylim='none'):
@@ -2164,7 +2178,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20220414a')
+        print('Last stamped: 20220614a')
         
     def reloadpkg():
         """
@@ -5223,6 +5237,8 @@ class CAM:
             CompOutFF  or   CompBFF        MEC_SPL_10            MEC:GIGE:30  XPS Mid
             CompOutNF  or   CompBNF        MEC_SPL_11            MEC:GIGE:31  XPS In
             Trap       or   Mousetrap      MEC_SPL_8             MEC:GIGE:16  None
+            
+            
         
         For every PV name (e.g. 'MEC:GIGE:24'), there is a corresponding SPL CAM Name (e.g. 'MEC_SPL_3')
             and two Camera NickNames (e.g. 'Legend' and 'Regen'); there is also a motor that is
@@ -5234,10 +5250,17 @@ class CAM:
                 and the SPL CAM Name in an array of format [NickName_0, SPL CAM Name, PV Name]
               : using returnAll=False is the typical usage that returns just the PV Name
         """
-        NickNameList=[['Legend','Regen'], ['StrInA','TopasA'], ['StrInB','TopasB'], ['MPA1In','MPA1A'], ['MPA1Out','MPA1B'], ['MPA2In','MPA2A'], ['MPA2Xtal','MPA2F'], ['MPA2Out','MPA2B'], ['CompIn', 'CompA'], ['CompOutFF', 'CompBFF'], ['CompOutNF', 'CompBNF'], ['Trap', 'Mousetrap']]
-        SPLNameList=['MEC_SPL_3', 'MEC_SPL_1', 'MEC_SPL_7', 'MEC_SPL_2', 'MEC_SPL_4', 'MEC_SPL_5', 'GigE17_TimeTool_Diag', 'MEC_SPL_6', 'MEC_SPL_9', 'MEC_SPL_10', 'MEC_SPL_11', 'MEC_SPL_8']
-        PVNameList=['MEC:GIGE:24', 'MEC:GIGE:22', 'MEC:GIGE:28', 'MEC:GIGE:23', 'MEC:GIGE:25', 'MEC:GIGE:26', 'MEC:GIGE:17', 'MEC:GIGE:27', 'MEC:GIGE:29', 'MEC:GIGE:30', 'MEC:GIGE:31', 'MEC:GIGE:16']
-        SmarActList=['SM0','SM1','SM2','SM3','SM4','SM5','SM6','SM7','SM8','XPS Mid','XPS In','None']
+        NickNameList=[['Legend','Regen'], ['StrInA','TopasA'], ['StrInB','TopasB'], ['MPA1In','MPA1A'], ['MPA1Out','MPA1B'], ['MPA2In','MPA2A'], ['MPA2Xtal','MPA2F'],
+                      ['MPA2Out','MPA2B'], ['CompIn', 'CompA'], ['CompOutFF', 'CompBFF'], ['CompOutNF', 'CompBNF'], ['Trap', 'Mousetrap'],
+                      ['SPFloat1','SPFloater1'], ['CompInNF','CompANF'], ['TTIn','TTA'], ['TTOut','TTB']]
+        SPLNameList=['MEC_SPL_3', 'MEC_SPL_1', 'MEC_SPL_7', 'MEC_SPL_2', 'MEC_SPL_4', 'MEC_SPL_5', 'GigE17_TimeTool_Diag',
+                     'MEC_SPL_6', 'MEC_SPL_9', 'MEC_SPL_10', 'MEC_SPL_11', 'MEC_SPL_8',
+                     'MEC_SPL_12', 'MEC_SPL_13', 'MEC_SPL_14', 'MEC_SPL_15']
+        PVNameList=['MEC:GIGE:24', 'MEC:GIGE:22', 'MEC:GIGE:28', 'MEC:GIGE:23', 'MEC:GIGE:25', 'MEC:GIGE:26', 'MEC:GIGE:17',
+                    'MEC:GIGE:27', 'MEC:GIGE:29', 'MEC:GIGE:30', 'MEC:GIGE:31', 'MEC:GIGE:16',
+                    'MEC:GIGE:32', 'MEC:GIGE:33', 'MEC:GIGE:34', "MEC:GIGE:35"]
+        SmarActList=['SM0','SM1','SM2','SM3','SM4','SM5','SM6','SM7','SM8','XPS Mid','XPS In','None',
+                     '(placeholder)', '(placeholder)', '(placeholder)', '(placeholder)']
         pos=np.where(np.array([list(map(lambda name: name.casefold(), NickName)) for NickName in  np.array(NickNameList)])==GIGEnam.casefold())
         if len(pos[0]) > 0:
             if returnAll==True:
@@ -5261,6 +5284,55 @@ class CAM:
             for ii in range(len(NickNameList)):
                 print('{:<10} or   {:<12}   {:<21} {:<11}  {:<10}'.format(str(NickNameList[ii][0]), str(NickNameList[ii][1]), str(SPLNameList[ii]), str(PVNameList[ii]), str(SmarActList[ii])))
             return False
+
+    @classmethod
+    def Jitter(cls,CAMreq,AcqNum=100,RepRateHz=-1,BeamSig=1):
+        """
+        Utility for taking a quick beam pointing stability measurement on a GigE camera.
+        Prints several statistics and generates plot for centroid jitter relative to the 
+            average position, normalized by the spatial beam dimensions sigma_X and sigma_Y
+
+        Parameters
+        ----------
+        CAMreq : supply the name of the camera using one of the options in CAM.Name(), 
+            e.g. 'Regen' or 'CompOutFF'
+        AcqNum : number of acquisitions in the scan; the default is 100
+        RepRateHz : anticipated repetition rate of the GigE camera in Hz, e.g. RepRateHz=5 for 5Hz operation;
+            the default is -1, which instead looks up the current refresh rate using the ArrayRate_RBV PV
+        BeamSig : allows custom multiplicative definition of beam sigma relative to the standard
+            deviation, with the default of 1; e.g. BeamSig=2.355 would calculate sigma as the FWHM instead
+
+        Returns
+        -------
+        [centoid_X, centroid_Y, sigma_X, sigma_Y]
+
+        """
+        PVhead=cls.Name(CAMreq)
+        efc.wPV('{}:Acquire'.format(PVhead),1)#tries to start the camera first
+        if RepRateHz<=0:
+            RepRateHz=efc.rPV('{}:ArrayRate_RBV'.format(PVhead))#tries to start the camera first
+        cX=[]; cY=[]; sX=[]; sY=[];
+        for ii in range(AcqNum):
+            if (ii+1)%int(AcqNum//5) == 0:
+                print('Shot number: {}, Percent complete: {}'.format(str(ii+1), str((ii+1)/AcqNum)))
+            cX.append(efc.rPV('{}:Stats2:CentroidX_RBV'.format(PVhead)))
+            cY.append(efc.rPV('{}:Stats2:CentroidY_RBV'.format(PVhead)))
+            sX.append(BeamSig*efc.rPV('{}:Stats2:SigmaX_RBV'.format(PVhead)))
+            sY.append(BeamSig*efc.rPV('{}:Stats2:SigmaY_RBV'.format(PVhead)))
+            time.sleep(1/RepRateHz)
+        fracX=(np.array(cX) - np.mean(cX)) / np.array(sX);
+        fracY=(np.array(cY) - np.mean(cY)) / np.array(sY);
+        fracTOT=np.sqrt(fracX**2 + fracY**2)
+        print('Number of shots: {}, beam sigma: {} x sigma'.format(AcqNum,BeamSig))
+        print('Average centroid_X (cX) and centroid_Y (cY) in pixels: cXavg={}px and cYavg={}px'.format(np.mean(cX),np.mean(cY)))
+        print('Average sigma_x (sX) and sigma_y (sY) in pixels: sXavg={}px and sYavg={}px'.format(np.mean(sX),np.mean(sY)))
+        print('StDev of cX relative to cXavg as \% of sX, i.e. fracX = (cX - cXavg)/sXavg): {}\%'.format(np.std(fracX)))
+        print('StDev of cY relative to cYavg as \% of sY, i.e. fracY = (cY - cYavg)/sYavg): {}\%'.format(np.std(fracY)))
+        print('StDev of total fractional relative drift, i.e. fracTOT=np.sqrt(fracX**2 + fracY**2): {}/%'.format(fracTOT))
+        ep.ll([fracX, fracY, fracTOT])
+        return [cX, cY, sX, sY]
+
+
         
     @classmethod
     def _QuickView(cls,CAMreq,ImageNo=2,xlb='none',ylb='none',LIVE=False,MAXLOOPS=25,endfreeze=False):#like MEC:GIGE:31
@@ -5487,7 +5559,8 @@ class CAM:
         the IOC just has a bad day and screws everything up), you can run ConfigReset() and *hopefully* get back to normal
         """
         PVhead=cls.Name(CAMreq)
-        efc.wPV('{}:Acquire'.format(PVhead),0)#hopefully prevents IOC crashes, per TylerJ
+        if LIVE==False:
+            efc.wPV('{}:Acquire'.format(PVhead),0)#hopefully prevents IOC crashes, per TylerJ
         ArraySize=[efc.rPV('{}:IMAGE{}:ArraySize0_RBV'.format(PVhead,ImageNo)),efc.rPV('{}:IMAGE{}:ArraySize1_RBV'.format(PVhead,ImageNo))]
         NameList=['Ref X-hair','DynCentroid','CAMname','Instructions','TimeStamp','Stats','Counts',
                   'AlignmentOK'+str(str(MisalignmentTolerance).zfill(3) if MisalignmentTolerance > 0 else efc.rPV('{}:IMAGE{}:Cross4:Name'.format(PVhead,ImageNo))[-3:])]
@@ -5548,6 +5621,8 @@ class CAM:
                     #set up everything...
                     OverlayNameField='{}{}'.format('Box' if ii<4 else 'Cross',(ii%4)+1)
                     OverlayName='{}:IMAGE{}:{}'.format(PVhead,ImageNo,OverlayNameField)
+                    efc.wPV('{}:IMAGE{}:NDArrayPort'.format(PVhead,ImageNo),'IMAGE{}:Over'.format(ImageNo))
+                    efc.wPV('{}:IMAGE{}:Over:EnableCallbacks'.format(PVhead,ImageNo),1)
                     efc.wPV(OverlayName+':Name', NameList[ii])#simple description field
                     efc.wPV(OverlayName+':Use', 1)#0=off,1=on
                     efc.wPV(OverlayName+':Shape', ShapeList[ii])#0=Cross,1=Rect,2=Text,3=Ellipse;;;DOCUMENTATION WRONG!! 2=Ellipse, 3=Text!!!!
@@ -5646,7 +5721,7 @@ class CAM:
         cls.Config(CAMreq='CompIn',RefXhairXY=[276/2,252/2],MisalignmentTolerance=50,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM8 to put centroid on xhair!')
         cls.Config(CAMreq='CompOutFF',RefXhairXY=[292,300],MisalignmentTolerance=25,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use XPS2 Mid (and Input) Mirror to align to xhair!')
         cls.Config(CAMreq='CompOutNF',RefXhairXY=[364,277],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use XPS2 Input(/Mid) Mirror to align to xhair!')
-
+        cls.Config(CAMreq='SPFloat1',RefXhairXY=[360,230],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='test')
 
 
 
