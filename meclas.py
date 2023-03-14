@@ -2178,7 +2178,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20220614a')
+        print('Last stamped: 20230313a')
         
     def reloadpkg():
         """
@@ -2193,10 +2193,13 @@ class efc:
         #importlib.reload(pkgname)
         ipy = get_ipython()
         ipy.magic("run /reg/g/pcds/pyps/apps/hutch-python/mec/mec/macros/meclas.py")
+        #/reg/g/pcds/pyps/apps/hutch-python/mec/mec/macros/
 
     @staticmethod
     def _tc():
-        """An internal list of color codes used for color printing to terminal, used by cprint()"""
+        """An internal list of color codes used for color printing to terminal, used by cprint(), based on ANSI escape codes"""
+        #future add: RGB 0-255 foreground: "\033[38;2;" + Rch + ";" + Gch + ";" + Bch + "m"
+        #future add: RGB 0-255 background: "\033[48;2;" + Rch + ";" + Gch + ";" + Bch + "m"
         colors=['ENDC','BLINK','K','R','G','Y','B','M','C','W','BK','BR','BG','BY','BB','BM','BC','BW','BRK','BRR','BRG','BRY','BRB','BRM','BRC','BRW','BBRK','BBRR','BBRG','BBRY','BBRB','BBRM','BBRC','BBRW']#B- for background, BR+ for 
         colorcodes=['\033['+str(ii)+'m' for ii in [0,5,30,31,32,33,34,35,36,37,40,41,42,43,44,45,46,47,90,91,92,93,94,95,96,97,100,101,102,103,104,105,106,107]];
         return dict(zip(colors,colorcodes))
@@ -2641,7 +2644,7 @@ class HAWG:
             try:
                 self._HighlandSocket=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self._HighlandSocket.settimeout(1.0)
-                self._HighlandSocket.connect(('highland-mec-01', 2000))
+                self._HighlandSocket.connect((GLOBAL.HIGHLAND_IP, 2000))#'highland-mec-01'
                 #Highland's IP address can be changed using the Lantronix DeviceInstaller
             except:
                 print('HIGHLAND NOT CONNECTED')
@@ -3681,19 +3684,19 @@ class LOSC:
         LStrQ='2' #for the four 2in2w diodes
         """
         if   str(LStrQ).lower() == 'a':
-            self._hostIP = '172.21.46.100'#'scope-ics-meclas-lecroy-a'
+            self._hostIP = GLOBAL.LECROY_A_IP #'172.21.46.100'#'scope-ics-meclas-lecroy-a'
             self._name = 'LeCroyA'
         elif str(LStrQ).lower() == 'b':
-            self._hostIP = '172.21.46.120'#'scope-ics-meclas-lecroy-b'#
+            self._hostIP = GLOBAL.LECROY_B_IP #'172.21.46.120'#'scope-ics-meclas-lecroy-b'#
             self._name = 'LeCroyB'
         elif str(LStrQ).lower() == '1':
-            self._hostIP = '172.21.46.60'#'scope-ics-mectc1-1'
+            self._hostIP = GLOBAL.LECROY_1_IP #'172.21.46.60'#'scope-ics-mectc1-1'
             self._name = 'LeCroy1'
         elif str(LStrQ).lower() == '2':
-            self._hostIP = '172.21.46.128'#'scope-ics-meclas-lecroy-02'
+            self._hostIP = GLOBAL.LECROY_2_IP #'172.21.46.128'#'scope-ics-meclas-lecroy-02'
             self._name = 'LeCroy2'
         elif str(LStrQ).lower() == 'l':
-            self._hostIP = '172.21.160.252'#'scope-ics-meclas-lecroy-02'
+            self._hostIP = GLOBAL.LECROY_L_IP #'172.21.160.252'#'scope-ics-meclas-lecroy-02'
             self._name = 'LeCroyL'
         else:
             print('Invalid scope name! Choose 1, 2, A, or B!!')
@@ -5207,6 +5210,8 @@ class CAM:
     List of possible commands includes:
         :Name #helps with names and naming conventions of all cameras in MEC
         :View #quickly view a single camera or multiple cameras in a python window
+        :QuickSave #saves the data from a specified GigE camera to a PNG image
+        :QuickSaveData #saves the data from a specified GigE camera to a 2D txt file
         :Config #configures plug-ins for a given camera
         :ConfigReset #refreshes all current camera configurations
     Potential future work:
@@ -5237,8 +5242,10 @@ class CAM:
             CompOutFF  or   CompBFF        MEC_SPL_10            MEC:GIGE:30  XPS Mid
             CompOutNF  or   CompBNF        MEC_SPL_11            MEC:GIGE:31  XPS In
             Trap       or   Mousetrap      MEC_SPL_8             MEC:GIGE:16  None
-            
-            
+            SPFloat1   or   SPFloater1     MEC_SPL_12            MEC:GIGE:32
+            CompInNF   or   CompANF        MEC_SPL_13            MEC:GIGE:33
+            TTIn       or   TTA            MEC_SPL_14            MEC:GIGE:34
+            TTOut      or   TTB            MEC_SPL_15            MEC:GIGE:35
         
         For every PV name (e.g. 'MEC:GIGE:24'), there is a corresponding SPL CAM Name (e.g. 'MEC_SPL_3')
             and two Camera NickNames (e.g. 'Legend' and 'Regen'); there is also a motor that is
@@ -5246,6 +5253,9 @@ class CAM:
         
         With a single argument for GIGEnam given, function returns the corresponding PV name
             :EXAMPLE: Name('Legend') and Name('Regen') and Name('MEC_SPL_3') all return 'MEC:GIGE:24'
+            
+        ***If hacking the function to use a non-MEC laser camera, use GIGEnam='custom:NAME:OF:GIGE:PV:HEAD'***
+            
         Option: using returnAll=True will return not only the PV Name but also the first Camera NickName
                 and the SPL CAM Name in an array of format [NickName_0, SPL CAM Name, PV Name]
               : using returnAll=False is the typical usage that returns just the PV Name
@@ -5280,10 +5290,17 @@ class CAM:
             else:
                 return PVNameList[pos3[0][0]]
         else:
-            print('{:<30} {:<21} {:<11}  {:<10}'.format('Camera NickName', 'SPL CAM Name', 'PV Name', 'Motor'))
-            for ii in range(len(NickNameList)):
-                print('{:<10} or   {:<12}   {:<21} {:<11}  {:<10}'.format(str(NickNameList[ii][0]), str(NickNameList[ii][1]), str(SPLNameList[ii]), str(PVNameList[ii]), str(SmarActList[ii])))
-            return False
+            if GIGEnam[:7]=='custom:':
+                #print("Using custom camera name: "+GIGEnam[7:])
+                if returnAll==True:
+                    return [GIGEnam[7:],'','']
+                else:
+                    return GIGEnam[7:]
+            else:
+                print('{:<30} {:<21} {:<11}  {:<10}'.format('Camera NickName', 'SPL CAM Name', 'PV Name', 'Motor'))
+                for ii in range(len(NickNameList)):
+                    print('{:<10} or   {:<12}   {:<21} {:<11}  {:<10}'.format(str(NickNameList[ii][0]), str(NickNameList[ii][1]), str(SPLNameList[ii]), str(PVNameList[ii]), str(SmarActList[ii])))
+                return False
 
     @classmethod
     def Jitter(cls,CAMreq,AcqNum=100,RepRateHz=-1,BeamSig=1):
@@ -5335,16 +5352,18 @@ class CAM:
 
         
     @classmethod
-    def _QuickView(cls,CAMreq,ImageNo=2,xlb='none',ylb='none',LIVE=False,MAXLOOPS=25,endfreeze=False):#like MEC:GIGE:31
+    def _QuickView(cls,CAMreq,ImageNo=2,LIVE=False,MAXLOOPS=25,endfreeze=False,reConfig=False):#like MEC:GIGE:31
         """
         returns 2D plot of the camera specified in CAMreq
         specify CAMreq using a Camera NickName, SPL Cam Name, or PV Name (i.e. from Name())
         Option: ImageNo should be 2 typically but could be set to 1 potentially
                 (recall that GigE IOCs produce multiple image streams)
-        Option: Set the labels for the x-axis and y-axis with xlb and ylb, respectively
-        Option: Set the limits for the x-axis and y-axis with xlim and ylim, respectively
+                (for AD cameras, try ImageNo=0 to trying talking to their ancient decrepit IOCs)
         Option: use LIVE=True to show a live image rather than a still image with LIVE=False
         Option: if LIVE=True then use MAXLOOPS to set the number of loops on the live view before finishing
+        Option: reConfig=True means that the CAM.Config function will be re-executed at the conclusion of the loop
+              : reConfig=False means that CAM.Config will not execute; tries to be as "read-only" as possible 
+              : (advisable to set reConfig=False when hacking for use with non-MEC cameras!!)
         Option: endfreeze=True means that the acquisition is stopped after reaching MAXLOOPS
               : endfreeze=False means that the acquisition will continue even after the live view ends
         Example: use _QuickView('Regen') to get just a quick current look at the regen camera output
@@ -5352,11 +5371,27 @@ class CAM:
         Note: using View() with only one argument is equivalent to using _QuickView() so using View() is preferred
         """
         PVhead=cls.Name(CAMreq)
-        efc.wPV('{}:Acquire'.format(PVhead),1)#tries to start the camera first
+        if reConfig:
+            efc.wPV('{}:Acquire'.format(PVhead),1)#tries to start the camera first
         try:#if True:#try:
-            tres1=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
-            tres2=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize2_RBV')
-            twf=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArrayData')
+            if ImageNo in [1,2]:
+                tres1=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
+                tres2=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize2_RBV')
+                twf=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArrayData')
+            elif ImageNo == 0:
+                if int(CAMreq.split(":")[-1]) in [100,90,285,295,287,297,320,423]:
+                    tres1=efc.rPV(PVhead+':ArraySizeY_RBV')
+                    tres2=efc.rPV(PVhead+':ArraySizeX_RBV')
+                    twf=efc.rPV(PVhead+':Image:ArrayData')
+                elif int(CAMreq.split(":")[-1]) in [186,461,469]:
+                    tres1=len(efc.rPV(PVhead+':PROJ_V'))
+                    tres2=len(efc.rPV(PVhead+':PROJ_H'))
+                    twf=efc.rPV(PVhead+':IMAGE')
+                else:
+                    print('Could not find the camera!: '+CAMreq)
+            else:
+                print('Invalid ImageNo!: '+str(ImageNo))
+                return False
             if len(twf) != tres1*tres2:
                 twf=list(twf)+(tres1*tres2-len(twf))*[0]
             fig,axs=plt.subplots(1,1)
@@ -5377,9 +5412,19 @@ class CAM:
         if LIVE:
             while loopcount<MAXLOOPS:
                 try:
-                    cls.Config(PVhead,LIVE=True)
-                    efc.wPV('{}:Acquire'.format(PVhead),1)
+                    if reConfig:
+                        cls.Config(CAMreq,LIVE=True)
+                        efc.wPV('{}:Acquire'.format(PVhead),1)
                     twf=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArrayData')
+                    if ImageNo in [1,2]:
+                        twf=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArrayData')
+                    else:
+                        if int(CAMreq.split(":")[-1]) in [100,90,285,295,287,297,320,423]:
+                            twf=efc.rPV(PVhead+':Image:ArrayData')
+                        elif int(CAMreq.split(":")[-1]) in [186,461,469]:
+                            twf=efc.rPV(PVhead+':IMAGE')
+                        else:
+                            print('Could not find the camera!: '+CAMreq)
                     if PVhead == 'MEC:GIGE:29':
                         tres1=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
                         tres2=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize0_RBV')
@@ -5395,13 +5440,110 @@ class CAM:
                 except:
                     print('Error occured when plotting {}!'.format(CAMreq))
                 loopcount+=1    
-        cls.Config(PVhead,LIVE=False)
-        if endfreeze == False:
-            efc.wPV('{}:Acquire'.format(PVhead),1)
+        if reConfig:
+            cls.Config(CAMreq,LIVE=False)
+            if endfreeze == False:
+                efc.wPV('{}:Acquire'.format(PVhead),1)
+        return
+    
+    @classmethod
+    def QuickSave(cls,CAMreq,ImageNo=2,FileNameQ='default'):#like MEC:GIGE:31
+        """
+        saves 2D plot of the camera specified in CAMreq without trying to change acquisition status
+        specify CAMreq using a Camera NickName, SPL Cam Name, or PV Name (i.e. from Name())
+        Option: ImageNo should be 2 typically but could be set to 1 potentially
+                (recall that GigE IOCs produce multiple image streams)
+                (for AD cameras, try ImageNo=0 to trying talking to their ancient decrepit IOCs)
+        Option: Set the labels for the x-axis and y-axis with xlb and ylb, respectively
+        Option: Set the limits for the x-axis and y-axis with xlim and ylim, respectively
+        """
+        PVhead=cls.Name(CAMreq)
+        try:#if True:#try:
+            if ImageNo in [1,2]:
+                tres1=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
+                tres2=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize2_RBV')
+                twf=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArrayData')
+            elif ImageNo == 0:
+                if int(CAMreq.split(":")[-1]) in [100,90,285,295,287,297,320,423]:
+                    tres1=efc.rPV(PVhead+':ArraySizeY_RBV')
+                    tres2=efc.rPV(PVhead+':ArraySizeX_RBV')
+                    twf=efc.rPV(PVhead+':Image:ArrayData')
+                elif int(CAMreq.split(":")[-1]) in [186,461,469]:
+                    tres1=len(efc.rPV(PVhead+':PROJ_V'))
+                    tres2=len(efc.rPV(PVhead+':PROJ_H'))
+                    twf=efc.rPV(PVhead+':IMAGE')
+                else:
+                    print('Could not find the camera!: '+CAMreq)
+            else:
+                print('Invalid ImageNo!: '+str(ImageNo))
+                return False
+            if len(twf) != tres1*tres2:
+                twf=list(twf)+(tres1*tres2-len(twf))*[0]
+            fig,axs=plt.subplots(1,1)
+            ax1=axs.imshow(np.array_split(np.array(twf),tres1));
+            axs.axes.xaxis.set_ticklabels([]);
+            axs.axes.yaxis.set_ticklabels([]);
+            axs.tick_params(direction='in'); 
+            axs.set_ylabel(CAMreq); 
+        except:#if True:#except:
+            print('Failed!')
+            return
+        fig.tight_layout()
+        if FileNameQ=='default':
+            FileNameQ='GigE_'+cls.Name(CAMreq,returnAll=True)[0]
+        try:
+            fig.savefig(GLOBAL.PSFILEPATH+FileNameQ+'_'+datetime.now().strftime('%Y%m%d.%H%M%S')+'.png');
+            print('File saved as '+GLOBAL.PSFILEPATH+FileNameQ+'_'+datetime.now().strftime('%Y%m%d_%H%M%S')+'.png')
+        except:
+            print('Save failed!')
+        return
+    
+    @classmethod
+    def QuickSaveData(cls,CAMreq,ImageNo=2,FileNameQ='default'):#like MEC:GIGE:31
+        """
+        saves 2D array of the camera specified in CAMreq without trying to change acquisition status
+        specify CAMreq using a Camera NickName, SPL Cam Name, or PV Name (i.e. from Name())
+        Option: ImageNo should be 2 typically but could be set to 1 potentially
+                (recall that GigE IOCs produce multiple image streams)
+                (for AD cameras, try ImageNo=0 to trying talking to their ancient decrepit IOCs)
+        """
+        PVhead=cls.Name(CAMreq)
+        try:#if True:#try:
+            if ImageNo in [1,2]:
+                tres1=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
+                tres2=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize2_RBV')
+                twf=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArrayData')
+            elif ImageNo == 0:
+                if int(CAMreq.split(":")[-1]) in [100,90,285,295,287,297,320,423]:
+                    tres1=efc.rPV(PVhead+':ArraySizeY_RBV')
+                    tres2=efc.rPV(PVhead+':ArraySizeX_RBV')
+                    twf=efc.rPV(PVhead+':Image:ArrayData')
+                elif int(CAMreq.split(":")[-1]) in [186,461,469]:
+                    tres1=len(efc.rPV(PVhead+':PROJ_V'))
+                    tres2=len(efc.rPV(PVhead+':PROJ_H'))
+                    twf=efc.rPV(PVhead+':IMAGE')
+                else:
+                    print('Could not find the camera!: '+CAMreq)
+            else:
+                print('Invalid ImageNo!: '+str(ImageNo))
+                return False
+            if len(twf) != tres1*tres2:
+                twf=list(twf)+(tres1*tres2-len(twf))*[0]
+            dat2d=np.array_split(np.array(twf),tres1);
+        except:#if True:#except:
+            print('Failed!')
+            return
+        if FileNameQ=='default':
+            FileNameQ='GigE_'+cls.Name(CAMreq,returnAll=True)[0]
+        try:
+            np.savetxt(GLOBAL.PSFILEPATH+FileNameQ+'_'+datetime.now().strftime('%Y%m%d.%H%M%S')+'.txt', dat2d);
+            print('Array file saved as '+GLOBAL.PSFILEPATH+FileNameQ+'_'+datetime.now().strftime('%Y%m%d_%H%M%S')+'.txt')
+        except:
+            print('Array save failed!')
         return
 
     @classmethod
-    def View(cls, *CAMargs,ImageNo=2,LIVE=False,MAXLOOPS=10,endfreeze=False):
+    def View(cls, *CAMargs,ImageNo=2,LIVE=False,MAXLOOPS=10,endfreeze=False,reConfig=False):
         """
         returns 2D plot of the cameras specified in *CAMargs
         specify *CAMargs using a Camera NickName, SPL Cam Name, or PV Name, listing all desired cameras
@@ -5416,8 +5558,12 @@ class CAM:
               according to how many cameras are selected!
         Option: ImageNo should be 2 typically but could be set to 1 potentially
                 (recall that GigE IOCs produce multiple image streams)
+                (for AD cameras, try ImageNo=0 to trying talking to their ancient decrepit IOCs)
         Option: use LIVE=True to show a live image rather than a still image with LIVE=False
         Option: if LIVE=True then use MAXLOOPS to set the number of loops on the live view before finishing
+        Option: reConfig=True means that the CAM.Config function will be re-executed at the conclusion of the loop
+              : reConfig=False means that CAM.Config will not execute; tries to be as "read-only" as possible 
+              : (advisable to set reConfig=False when hacking for use with non-MEC cameras!!)
         Option: endfreeze=True means that the acquisition is stopped after reaching MAXLOOPS
               : endfreeze=False means that the acquisition will continue even after the live view ends
         """
@@ -5426,7 +5572,7 @@ class CAM:
         if CAMargs == ('all',):
             CAMargs = ('Regen', 'Trap', 'StrInA', 'StrInB', 'MPA1In', 'MPA1Out', 'MPA2In', 'MPA2Out', 'MPA2Xtal', 'CompIn', 'CompOutNF', 'CompOutFF')
         if len(CAMargs) == 1:
-            cls._QuickView(*CAMargs,LIVE=LIVE,MAXLOOPS=MAXLOOPS)
+            cls._QuickView(*CAMargs,ImageNo=ImageNo,LIVE=LIVE,MAXLOOPS=MAXLOOPS,reConfig=reConfig)
             return
         plt.ion()
         subply=len(CAMargs)//2 + len(CAMargs)%2;subplx=2;
@@ -5441,12 +5587,34 @@ class CAM:
             try:
                 tPVhead=cls.Name(CAMargs[ii])
                 tPVheadL.append(tPVhead);
-                efc.wPV('{}:Acquire'.format(tPVhead),1)#tries to start each camera
-                tres1=efc.rPV(tPVhead+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
-                tres2=efc.rPV(tPVhead+':IMAGE'+str(ImageNo)+':ArraySize0_RBV')
-                tres3=efc.rPV(tPVhead+':IMAGE'+str(ImageNo)+':ArraySize2_RBV')
-                tresL=sorted([tres1,tres2,tres3],reverse=True) 
-                twf=efc.rPV(tPVhead+':IMAGE'+str(ImageNo)+':ArrayData')
+                if reConfig:
+                    efc.wPV('{}:Acquire'.format(tPVhead),1)#tries to start each camera               
+                if ImageNo in [1,2]:
+                    tres1=efc.rPV(tPVhead+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
+                    tres2=efc.rPV(tPVhead+':IMAGE'+str(ImageNo)+':ArraySize0_RBV')
+                    tres3=efc.rPV(tPVhead+':IMAGE'+str(ImageNo)+':ArraySize2_RBV')
+                    tresL=sorted([tres1,tres2,tres3],reverse=True) 
+                    twf=efc.rPV(tPVhead+':IMAGE'+str(ImageNo)+':ArrayData')
+                    #
+                    #tres1=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
+                    #tres2=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize2_RBV')
+                    #twf=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArrayData')
+                elif ImageNo == 0:
+                    if int(tPVhead.split(":")[-1]) in [100,90,285,295,287,297,320,423]:
+                        tres1=efc.rPV(tPVhead+':ArraySizeY_RBV')
+                        tres2=efc.rPV(tPVhead+':ArraySizeX_RBV')
+                        twf=efc.rPV(tPVhead+':Image:ArrayData')
+                    elif int(tPVhead.split(":")[-1]) in [186,461,469]:
+                        tres1=len(efc.rPV(tPVhead+':PROJ_V'))
+                        tres2=len(efc.rPV(tPVhead+':PROJ_H'))
+                        twf=efc.rPV(tPVhead+':IMAGE')
+                    else:
+                        print('Could not find the camera!: '+tPVhead)
+                    #tres3=tres2[:]
+                    tresL=[tres1,tres2];#sorted([tres1,tres2],reverse=True) 
+                else:
+                    print('Invalid ImageNo!: '+str(ImageNo))
+                    return False
                 if len(twf) != tresL[0]*tresL[1]:
                     twf = list(twf) + (tresL[0]*tresL[1] - len(twf))*[0]
                     tres1=tres3
@@ -5469,8 +5637,16 @@ class CAM:
             while loopcount<MAXLOOPS:
                 for ii in range(len(CAMargs)):
                     tidx=(ii//2,ii%2) if len(CAMargs) > 2 else (ii%2)
-                    try:
-                        twf=efc.rPV(tPVheadL[ii]+':IMAGE'+str(ImageNo)+':ArrayData')
+                    try:        
+                        if ImageNo in [1,2]:
+                            twf=efc.rPV(tPVhead+':IMAGE'+str(ImageNo)+':ArrayData')
+                        else:
+                            if int(tPVhead.split(":")[-1]) in [100,90,285,295,287,297,320,423]:
+                                twf=efc.rPV(tPVhead+':Image:ArrayData')
+                            elif int(tPVhead.split(":")[-1]) in [186,461,469]:
+                                twf=efc.rPV(tPVhead+':IMAGE')
+                            else:
+                                print('Could not find the camera!: '+tPVhead)
                         if tPVheadL[ii] == 'MEC:GIGE:29':
                             tres1=efc.rPV(tPVheadL[ii]+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
                             tres2=efc.rPV(tPVheadL[ii]+':IMAGE'+str(ImageNo)+':ArraySize0_RBV')
@@ -5487,10 +5663,11 @@ class CAM:
                     except:
                         print('Error occured when plotting {}!'.format(CAMargs[ii]))
                 loopcount+=1
-        for tPVhead in CAMargs:
-            cls.Config(cls.Name(tPVhead),LIVE=False)
-            if endfreeze == False:
-                efc.wPV('{}:Acquire'.format(cls.Name(tPVhead)),1)
+        if reConfig:
+            for tPVhead in CAMargs:
+                cls.Config(cls.Name(tPVhead),LIVE=False)
+                if endfreeze == False:
+                    efc.wPV('{}:Acquire'.format(cls.Name(tPVhead)),1)
 # =============================================================================
 #     def _tiptilt(cls,camPVhead):#allow toggle btw xyz, getch btw step/etc, plot view of beam on CRIX:GIGE:06
 #         plt.ion() 
@@ -5519,6 +5696,22 @@ class CAM:
 #             else:
 #                 print('Same frame!')
 # =============================================================================
+
+    @classmethod
+    def DisableOverlay(cls, CAMreq, ImageNo=2):
+        PVhead=cls.Name(CAMreq)
+        efc.wPV('{}:Acquire'.format(PVhead),0)#hopefully prevents IOC crashes, per TylerJ
+        for ii in range(8):#eight overlays possible
+            try:
+                #set up everything...
+                OverlayNameField='{}{}'.format('Box' if ii<4 else 'Cross',(ii%4)+1)
+                OverlayName='{}:IMAGE{}:{}'.format(PVhead,ImageNo,OverlayNameField)
+                efc.wPV(OverlayName+':Use', 1)#0=off,1=on
+            except:
+                print('Failed to disable overlay!')
+        return
+
+
 
     @classmethod
     def Config(cls, CAMreq, RefXhairXY=[-1,-1], InstructionStr='', MisalignmentTolerance=-1, ImageNo=2, RefXhairXYsize=[-1,-1],LIVE=False):
@@ -5557,6 +5750,8 @@ class CAM:
         
         Nominal values for the MEC SPL camera configurations are kept in ConfigReset(); if things get screwed up (because sometimes
         the IOC just has a bad day and screws everything up), you can run ConfigReset() and *hopefully* get back to normal
+        
+        (not advised to use this on custom cameras unless you are REALLY brave and daring)
         """
         PVhead=cls.Name(CAMreq)
         if LIVE==False:
@@ -5583,7 +5778,7 @@ class CAM:
         #CAMname
         [OverlayName+':SizeXDummy', 9999, OverlayName+':PositionXDummy', 10, '', 0, 
          OverlayName+':SizeYDummy', 9999, OverlayName+':PositionYDummy', 10, '', 0,
-         '{:<10.9} {:<11.10} {:<11.11}'.format(*cls.Name(PVhead,returnAll=True))],
+         '{:<10.9} {:<11.10} {:<11.11}'.format(*cls.Name(CAMreq,returnAll=True))],
         #Instructions
         [OverlayName+':SizeXDummy', 9999, OverlayName+':PositionXDummy', 10, '', 0, 
          OverlayName+':SizeYDummy', 9999, OverlayName+':PositionYDummy', -20+ArraySize[1], '', 0, 
@@ -5707,22 +5902,48 @@ class CAM:
 # =============================================================================
 
     @classmethod
-    def ConfigReset(cls):#not sure why these change sometimes -- config file somewhere? camera problem? 
+    def ConfigReset(cls,CAMreq='all'):#not sure why these change sometimes -- config file somewhere? camera problem? 
         """
-        executes the Config function serially on SPL1-10 with their own default values
+        if default CAMreq='all', executes the Config function serially on SPL1-10 with their own default values
+        can also accept a single specified camera input to reset
         """
-        cls.Config(CAMreq='Legend',RefXhairXY=[359,251],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[100,100],LIVE=False,InstructionStr='DO NOT tune to xhair!')
-        cls.Config(CAMreq='StrInA',RefXhairXY=[335,257],MisalignmentTolerance=25,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM0 (NOT SM1!) to put centroid on xhair!')
-        cls.Config(CAMreq='StrInB',RefXhairXY=[334,243],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM2 to put centroid on xhair!')
-        cls.Config(CAMreq='MPA1In',RefXhairXY=[152,147],MisalignmentTolerance=15,ImageNo=2, RefXhairXYsize=[25,25],LIVE=False,InstructionStr='Use SM3 to put centroid on xhair!')
-        cls.Config(CAMreq='MPA1Out',RefXhairXY=[411,249],MisalignmentTolerance=15,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM4 to maximize spot!')
-        cls.Config(CAMreq='MPA2In',RefXhairXY=[366,276],MisalignmentTolerance=15,ImageNo=2, RefXhairXYsize=[50,50],LIVE=False,InstructionStr='Use SM5(V) to put centroid on xhair!')
-        cls.Config(CAMreq='MPA2Out',RefXhairXY=[385,259],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[190,190],LIVE=False,InstructionStr='Use SM7 (and SM6) to put centroid on xhair!')
-        cls.Config(CAMreq='CompIn',RefXhairXY=[276/2,252/2],MisalignmentTolerance=50,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM8 to put centroid on xhair!')
-        cls.Config(CAMreq='CompOutFF',RefXhairXY=[292,300],MisalignmentTolerance=25,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use XPS2 Mid (and Input) Mirror to align to xhair!')
-        cls.Config(CAMreq='CompOutNF',RefXhairXY=[364,277],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use XPS2 Input(/Mid) Mirror to align to xhair!')
-        cls.Config(CAMreq='SPFloat1',RefXhairXY=[360,230],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='test')
 
+        if CAMreq == 'all':
+            ResetList=['Legend','StrInA','StrInB','MPA1In','MPA1Out','MPA2In','MPA2Xtal','MPA2Out','CompIn','CompOutFF','CompOutNF','Trap','SPFloat1','CompInNF','TTIn','TTOut']
+        else:
+            ResetList=[cls.Name(CAMreq,returnAll=True)[0]]
+
+        for eaEntry in ResetList:
+            if eaEntry == 'Legend':
+                cls.Config(CAMreq='Legend',RefXhairXY=[359,251],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[100,100],LIVE=False,InstructionStr='DO NOT tune to xhair!')
+            elif eaEntry == 'StrInA':
+                cls.Config(CAMreq='StrInA',RefXhairXY=[335,257],MisalignmentTolerance=25,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM0 (NOT SM1!) to put centroid on xhair!')
+            elif eaEntry == 'StrInB':
+                cls.Config(CAMreq='StrInB',RefXhairXY=[334,243],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM2 to put centroid on xhair!')
+            elif eaEntry == 'MPA1In':
+                cls.Config(CAMreq='MPA1In',RefXhairXY=[152,147],MisalignmentTolerance=15,ImageNo=2, RefXhairXYsize=[25,25],LIVE=False,InstructionStr='Use SM3 to put centroid on xhair!')
+            elif eaEntry == 'MPA1Out':
+                cls.Config(CAMreq='MPA1Out',RefXhairXY=[411,249],MisalignmentTolerance=15,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM4 to maximize spot!')
+            elif eaEntry == 'MPA2In':
+                cls.Config(CAMreq='MPA2In',RefXhairXY=[366,276],MisalignmentTolerance=15,ImageNo=2, RefXhairXYsize=[50,50],LIVE=False,InstructionStr='Use SM5(V) to put centroid on xhair!')
+            elif eaEntry == 'MPA2Out':
+                cls.Config(CAMreq='MPA2Out',RefXhairXY=[385,259],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[190,190],LIVE=False,InstructionStr='Use SM7 (and SM6) to put centroid on xhair!')
+            elif eaEntry == 'CompIn':
+                cls.Config(CAMreq='CompIn',RefXhairXY=[276/2,252/2],MisalignmentTolerance=50,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM8 to put centroid on xhair!')
+            elif eaEntry == 'CompOutFF':
+                cls.Config(CAMreq='CompOutFF',RefXhairXY=[292,300],MisalignmentTolerance=25,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use XPS2 Mid (and Input) Mirror to align to xhair!')
+            elif eaEntry == 'CompOutNF':
+                cls.Config(CAMreq='CompOutNF',RefXhairXY=[364,277],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use XPS2 Input(/Mid) Mirror to align to xhair!')
+            elif eaEntry == 'SPFloat1':
+                cls.Config(CAMreq='SPFloat1',RefXhairXY=[360,230],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='test')
+            elif eaEntry == 'Trap':
+                cls.Config(CAMreq='Trap',RefXhairXY=[215,156],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Watch for back reflections!!')
+            elif eaEntry == 'CompInNF':
+                cls.Config(CAMreq='CompInNF',RefXhairXY=[304,210],MisalignmentTolerance=50,ImageNo=2, RefXhairXYsize=[180,180],LIVE=False,InstructionStr='Use SM7 to center beam on xhair!')
+            else:
+                print('Camera configuration not found: '+eaEntry)
+        return
+                
 
 
 
@@ -6443,6 +6664,14 @@ class GLOBAL:
     LMap2=[50,1000] #Pixel mapping from LeCroy2 horizontal axis (10002px) to Highland (140px)
     pwttfmap=[25,500]
     PSFILEPATH='/reg/neh/operator/mecopr/mecpython/pulseshaping/'
+    
+    HIGHLAND_IP = 'highland-mec-01'
+    LECROY_A_IP = '172.21.46.120' ###TEMP SUBSTITUTE### #'172.21.46.100'#'scope-ics-meclas-lecroy-a'
+    LECROY_B_IP = '172.21.46.120'#'scope-ics-meclas-lecroy-b'#
+    LECROY_1_IP = '172.21.46.60'#'scope-ics-mectc1-1'
+    LECROY_2_IP = '172.21.46.128'#'scope-ics-meclas-lecroy-02'
+    LECROY_L_IP = '172.21.160.252'#'scope-ics-meclas-lecroy-02'
+    
     
     @classmethod
     def notepadPVreset(cls):
