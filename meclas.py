@@ -6,7 +6,8 @@ Apologies on behalf of: Eric Cunningham (and others)
 To load: use import meclas or use IPython's %run magic function
 
 Class list and brief description:
-     LPL -- routines for LPL pulse shaping (with some aux functions), data acquisition, etc.
+     LPL -- routines for LPL pulse shaping (with some aux functions),
+            data acquisition, etc.
      efc -- extra function class, holds many useful utilities and shortcuts
      ep -- shortcut plotting functions for the lazy
      HAWG -- Highland AWG control and readout
@@ -19,30 +20,34 @@ Class list and brief description:
    **Stage -- Newport and SmarAct stage utilities
    **Timing -- ns and fs timing utilities
      CAM -- functions for GigE camera acquisition, configuration, etc.
-     TTL_shutter -- Beckhoff utilities for controlling/tracking Thorlabs TTL shutters
-   **DG645 -- functions for DG645 operation, parameter backup and restoration, etc.
-   **SPL -- routines for SPL alignment, etc. 
+     TTL_shutter -- Beckhoff utilities for controlling/tracking Thorlabs TTL
+                    shutters
+   **DG645 -- functions for DG645 operation, parameter backup and restoration,
+              etc.
+   **SPL -- routines for SPL alignment, etc.
    **UNIBLITZ -- UNIBLITZ shutter utilities for setting SPL trigger modes, etc.
    **Spectrometer -- functions for Qmini and Ocean Optics USB4000 spectrometers
-   **VISAR -- routines for VISAR timing, streak camera configuration, laser control, etc.
-     CtrlSys -- routines for checking responsivity of PVs, hosts, hutch computers, etc.
+   **VISAR -- routines for VISAR timing, streak camera configuration,
+              laser control, etc.
+     CtrlSys -- routines for checking responsivity of PVs, hosts,
+                hutch computers, etc.
    **SCALLOPS -- routines for LPL pulse shaping simulations
    **LabEnv -- functions for interfacing with lab environment monitors
    **RIS -- functions for monitoring RIS-related systems and PVs
    **PDU -- functions for operating power distribution units
      GLOBAL -- home for global constants, PV definitions, etc.
-   
+
    ** = FUTURE DEVELOPMENT
 """
 
-### load packages
+# load packages
 import socket
 import time
 import math
 import numpy as np
 import struct
-#from scipy import signal
-#from scipy import stats
+# from scipy import signal
+# from scipy import stats
 import matplotlib.pyplot as plt
 import pickle
 from datetime import date, datetime
@@ -53,17 +58,18 @@ import os.path
 import sys
 from ophyd.signal import EpicsSignal
 import elog
-import pcdsdaq.ext_scripts 
+import pcdsdaq.ext_scripts
 import glob
-#import pandas as pd
+# import pandas as pd
 import stat
 import getpass
 import multiprocessing
-#import threading
-import termios, tty
+# import threading
+import termios
+import tty
 import select
 import re
-#import regex as re
+# import regex as re
 
 
 
@@ -71,51 +77,80 @@ class LPL:
     """
     Stores functions related to LPL pulse shaping, data acquisition, etc.
     Functions include:
-        :_LinearWave #function for linear waveforms appropriate for loading to the Highland AWG
-        :_LinearWave2 #function for linear waveforms of variable length, appropriate for specifying targeted pulse shapes
-        :_ParabolicWave2 #function for parabolic waveforms of variable length, appropriate for specifying targeted pulse shapes
-        :_ExponentialWave2 #function for exponential waveforms of variable length, appropriate for specifying targeted pulse shapes
-        :_EW2 #shorthand version of _ExponentialWave2 tailored for facilitating LPL shaping at 10Hz
-        :_EW2stringhint #same as above but produces strings for the benefit of saving wave hints in recipes
+        :_LinearWave #function for linear waveforms appropriate for loading to
+            the Highland AWG
+        :_LinearWave2 #function for linear waveforms of variable length,
+            appropriate for specifying targeted pulse shapes
+        :_ParabolicWave2 #function for parabolic waveforms of variable length,
+            appropriate for specifying targeted pulse shapes
+        :_ExponentialWave2 #function for exponential waveforms of variable
+            length, appropriate for specifying targeted pulse shapes
+        :_EW2 #shorthand version of _ExponentialWave2 tailored for facilitating
+            LPL shaping at 10Hz
+        :_EW2stringhint #same as above but produces strings for the benefit of
+            saving wave hints in recipes
         :_ComboWave #combines waveforms for pulse shaping goals
-        :_TraceFormatting #projects/downsamples waveforms from one horizontal base to another
-        :_UpdatingShapingAlgorithm #calculates new Highland input based on old input, its corresponding output, and a target
-        :_FixEdges #allows tweaking of behavior of points near waveform discontinuities (edges and steps)
-        :_SmoothWvfm #locally smooths an input waveform as an option as part of pulse shaping
-        :_PulseGoal #helps define a targeted waveform for the full energy output
-        :_PulseMax #helps set the desired amplitude of _PulseGoal based on shape and desired output energy
-        :_Psns_get #retrieves the list of pulse segment durations of the current targeted output pulse
-        :_Psns_set #sets the list of pulse segment durations of a new targeted output pulse
-        :_SSs_get #retrieves the list of pulse segment start/stop heights of the current targeted output pulse
-        :_SSs_set #sets the list of pulse segment start/stop heights of a new targeted output pulse
-        :_YSSs_get #retrieves the list of YFE exponential pulse segment start/stop heights of the current targeted 10Hz output pulse
-        :_YSSs_set #sets the list of YFE expnential pulse segment start/stop heights of a new targeted 10Hz output pulse
-        :_wIter2 #wrapper function for using _UpdatingShapingAlgorithm in context
-        :_weichall #generates weighted waveforms for YFE, 1in1w, 4x2in1w, and 4x2in2w outputs using scopes and energy meters
-        :_weichToPowerVsTime #converts energy-weighted waveforms into a tuple of instantaneous power vs time
-        :_PGToPowerVsTime #converts scaled _PulseGoal waveforms into a tuple of instantaneous power vs time
-        :_pshostcheck #checks the host of the current computer to verify it is a machine with all the proper network access for pulse shaping
+        :_TraceFormatting #projects/downsamples waveforms from one horizontal
+            base to another
+        :_UpdatingShapingAlgorithm #calculates new Highland input based on old
+            input, its corresponding output, and a target
+        :_FixEdges #allows tweaking of behavior of points near waveform
+            discontinuities (edges and steps)
+        :_SmoothWvfm #locally smooths an input waveform as an option as part of
+            pulse shaping
+        :_PulseGoal #helps define a targeted waveform for the full energy
+            output
+        :_PulseMax #helps set the desired amplitude of _PulseGoal based on
+            shape and desired output energy
+        :_Psns_get #retrieves the list of pulse segment durations of the
+            current targeted output pulse
+        :_Psns_set #sets the list of pulse segment durations of a new targeted
+            output pulse
+        :_SSs_get #retrieves the list of pulse segment start/stop heights of
+            the current targeted output pulse
+        :_SSs_set #sets the list of pulse segment start/stop heights of a new
+            targeted output pulse
+        :_YSSs_get #retrieves the list of YFE exponential pulse segment
+            start/stop heights of the current targeted 10Hz output pulse
+        :_YSSs_set #sets the list of YFE expnential pulse segment start/stop
+            heights of a new targeted 10Hz output pulse
+        :_wIter2 #wrapper function for using _UpdatingShapingAlgorithm in
+            context
+        :_weichall #generates weighted waveforms for YFE, 1in1w, 4x2in1w, and
+            4x2in2w outputs using scopes and energy meters
+        :_weichToPowerVsTime #converts energy-weighted waveforms into a tuple
+            of instantaneous power vs time
+        :_PGToPowerVsTime #converts scaled _PulseGoal waveforms into a tuple of
+            instantaneous power vs time
+        :_pshostcheck #checks the host of the current computer to verify it is
+            a machine with all the proper network access for pulse shaping
         :_DateString #shortcut for generating a string of today's date
         :get_curr_exp #retrieves the current experiment name in MEC
         :get_curr_run #retrieves the current run number in MEC
         :get_curr_shape #retrieves the last loaded pulse shape in MEC
         :_psheaders #prepares the groundwork for pulse shaping exercises
         :_psacqx #acquires data after taking a shot
-        :_psefc #plots most-recent shot compared to its goal and returns a suggestion for a new input waveform
-        :psefc10Hz #performs pulse shaping at 10Hz to converge towards an input goal for the YFE output
+        :_psefc #plots most-recent shot compared to its goal and returns a
+            suggestion for a new input waveform
+        :psefc10Hz #performs pulse shaping at 10Hz to converge towards an input
+            goal for the YFE output
         :_psupd #shortcut for updating the Highland waveform
         :psloadwvfm #loads a previously-saved pulse shaping recipe
         :pssavewvfm #saves a new pulse shaping recipe
         :psviewwvfm #displays a previously-saved pulse shaping recipe
-        :psrefrwvfm #refreshes a previously-saved pulse shaping recipe to account for system drift
+        :psrefrwvfm #refreshes a previously-saved pulse shaping recipe to
+            account for system drift
         :psrecipes #lists all previously-saved pulse shaping recipes
-        :psmenu #allows loading or viewing of previously-saved pulse shaping recipes from a list
-        :pspreshot #executes routine that prepares the state of the laser and its diagnostics for a full-energy shot
-        :pspostshot #executes routine that records all data after a full-energy shot and returns the laser to a stand-by state
+        :psmenu #allows loading or viewing of previously-saved pulse shaping
+            recipes from a list
+        :pspreshot #executes routine that prepares the state of the laser and
+            its diagnostics for a full-energy shot
+        :pspostshot #executes routine that records all data after a full-energy
+            shot and returns the laser to a stand-by state
         :On #turns the long-pulse laser system on
-        :SHG_opt #executes the optimization routine for the SHG crystal angles of all four arms of the LPL
-        
-            
+        :SHG_opt #executes the optimization routine for the SHG crystal angles
+            of all four arms of the LPL
+
     Potential future work includes:
        - put all the stuff Galtier wants to do inside lpl
            - LPL.On() instead of YFE.On(), e.g.
@@ -126,38 +161,46 @@ class LPL:
        - add underscores to methods not generally intended for non-expert usage
        - consider consolidating some functions into one
            - e.g. _LinearWave, _ExponentialWave, etc.
-       - add Deconvolution function -- help shape, seems that 100ps length also affected
-           - account for the instrument response of the PD, amp, scope, etc. in determining a detected waveform
+       - add Deconvolution function -- help shape, seems that 100ps length also
+         affected
+           - account for the instrument response of the PD, amp, scope, etc. in
+             determining a detected waveform
        - save PFN voltages on-shot too?
-       - Scope vertical resolution problem -- casting somewhere? better to motorize characterized ND filters...
-       - Slow feedback to 10Hz pulse goal based on full shot rbv? Esp to help front edge problems?
-           - Need this combined with SCALLOPS? Need a fit function to data for the full rbv?
+       - Scope vertical resolution problem -- casting somewhere? better to
+           motorize characterized ND filters...
+       - Slow feedback to 10Hz pulse goal based on full shot rbv? Esp to help
+           front edge problems?
+           - Need this combined with SCALLOPS? Need a fit function to data for
+               the full rbv?
        - YSSs: YFE equivalent of SSs
            - Steal a notepad pv array
        - _EW2(Psns, YSSs)
-       - Have a version of pulsegoal but 10hz using _ew2 to interpolate instead of lw, still have dellist
+       - Have a version of pulsegoal but 10hz using _ew2 to interpolate instead
+           of lw, still have dellist
        - SmartPulseGoal10Hz using output of SCALLOPS
        """
-       
-    def _LinearWave(Edge1PixNo,Edge1Height,Edge2PixNo,Edge2Height):
+
+    def _LinearWave(Edge1PixNo, Edge1Height, Edge2PixNo, Edge2Height):
         """
-        Generates hex string-formatted linearly-interpolated waveform of 
-        length 140 between two input points
-        Primarily intended for use with the Highland AWG, so max value capped at 65535
-        
-        _LinearWave(1,10000,120,28000) returns a string of length 140 (560 chars)
-        with linear ramp from (pixel 1, height 10000) to (pixel 120, height 28000)
+        Generates hex string-formatted linearly-interpolated waveform of
+            length 140 between two input points
+        Primarily intended for use with the Highland AWG, so max value capped
+            at 65535
+
+        _LinearWave(1,10000,120,28000) returns a string of length 140
+            (560 chars) with linear ramp from (pixel 1, height 10000) to
+            (pixel 120, height 28000)
         """
-        itt=0
-        NewString=''
-        if Edge1Height>65535:
+        itt = 0
+        NewString = ''
+        if Edge1Height > 65535:
             print('Edge1 height exceeds max value of 65535')
-            h1=65535
-        elif Edge1Height<0:
+            h1 = 65535
+        elif Edge1Height < 0:
             print('Edge1 height must be positive')
-            h1=0
+            h1 = 0
         else:
-            h1=int(Edge1Height)
+            h1 = int(Edge1Height)
         if Edge2Height>65535:
             print('Edge2 height exceeds max value of 65535')
             h2=65535
@@ -1831,6 +1874,7 @@ class ep:
         :llt #plot list of arrays of values according to a time mapping 
         :llcomp #plot list of diode waveforms along with target waveform
         :lfft #quick plotting of FFT of provided waveform
+        :ShotVsGoal #quick plotting of LPL shot vs goal waveform
     potential future work
         - consider consolidating some functions into one
             - e.g. getch with and without TimeOut?
@@ -2145,6 +2189,21 @@ class ep:
         ps1=np.abs(fftd1/max(fftd1))**2
         cls.lxyloglog(freqs1[idx1],ps1[idx1])
         return [freqs1[idx1],ps1[idx1]]
+    
+    @classmethod
+    def ShotVsGoal(cls,shotDateStr,dateShotIndex,Psns,SSs,zzJQ):
+        """
+        Shorthand function for plotting the power vs. time of a specified shot of the LPL compared to a specified goal
+        - specify the shot you would like to plot using shotDateStr (e.g. '20240116') and dateShotIndex (e.g. 20)
+          to plot the index=20 (21st) shot from shot date 2024 January 16
+        - specify the goal you would like to plot against using Psns (e.g. [2.25, 2.25, 2.25, 2.25, 12.25]),
+          SSs (e.g. [[0.0, 4.5], [4.5, 10.0], [10.0, 17.0], [17.0, 25.0], [25.0, 100.0]]), and zzJQ (e.g. 45)
+          to plot the segment durations, segment endpoint heights, and pulse energy of a particular 45J ramp pulse
+        """
+        shotData = LPL._weichToPowerVsTime(efc.pickleload2(GLOBAL.PSFILEPATH + "s"+str(shotDateStr)+".p")[int(dateShotIndex)])
+        goalData = LPL._PGToPowerVsTime(Psns=Psns,SSs=SSs,zzJQ=zzJQ,)
+        cls.llxy([shotData,goalData], xlim=[-1, 1+0.25*np.count_nonzero(goalData)], xlb="Time (ns)", ylb="Power (W)",)
+        return
 
         
 class efc:
@@ -2178,7 +2237,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20230313a')
+        print('Last stamped: 20240725')
         
     def reloadpkg():
         """
@@ -4116,6 +4175,8 @@ class LOSC:
                  to the current eLog
         """
         ExpName=LPL.get_curr_exp()
+        RunNumber=LPL.get_curr_run()
+        print(RunNumber)
         fpQ=str('/reg/neh/operator/mecopr/experiments/'+ExpName+'/lecroy_xray/')
         chan_to_eLog = int(chan_to_eLog)
         if chan_to_eLog not in [1,2,3,4]:
@@ -4146,12 +4207,15 @@ class LOSC:
         except:
             print('Failed to read out data!')
         for ii in range(4):
-            np.savetxt(fpQ+'lecroy1_ch'+str(ii+1)+'_'+timestamp+'.dat',tuple(chdata[ii]))
+            # save file in raw
+            #np.savetxt(fpQ+'lecroy1_ch'+str(ii+1)+'_'+timestamp+'_run'+str(RunNumber)+'.dat',tuple(chdata[ii]))
+            # save file in column 
+            np.savetxt(fpQ+'lecroy1_ch'+str(ii+1)+'_'+timestamp+'_run'+str(RunNumber)+'.txt',np.c_[chdata[ii][0], chdata[ii][1]])
         ep.lxysav(chdata[chan_to_eLog-1][0],chdata[chan_to_eLog-1][1],fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'.png',abs_path=True)
-        fullmsg=str('Scope trace data for all 4 channels saved to '+fpQ+' with time stamp '+timestamp+'. Attached are the data and plot files for channel '+str(chan_to_eLog)+'.')
+        fullmsg=str('Scope trace data for all 4 channels saved to '+fpQ+' with time stamp '+timestamp+' from run '+str(RunNumber)+'. Attached are the data and plot files for channel '+str(chan_to_eLog)+'.')
         #eplxy(chdata[chan_to_eLog-1][0],chdata[chan_to_eLog-1][1])
         try:
-            mecel.post(fullmsg,attachments=[fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'.dat', fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'.png'], tags=['scope_trace'])
+            mecel.post(fullmsg,attachments=[fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'.txt', fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'.png'], tags=['scope_trace'])
             print('Auto-saved to eLog.') 
         except:
             print('Failed to auto-save to eLog!')
@@ -5229,6 +5293,86 @@ class CAM:
             
         With no argument given, Name() returns a list of names of all cameras
         Example: Name() prints out a table with all supported GigE cameras -- something like this:
+            Camera NickName                CamViewer             PV Name      Motor
+            Legend     or   Regen          Regen                 MEC:GIGE:24  SM0
+            StrInA     or   TopasA         StrinA                MEC:GIGE:22  SM1
+            StrInB     or   TopasB         StrinB                MEC:GIGE:28  SM2
+            MPA1In     or   MPA1A          MPA1In                MEC:GIGE:23  SM3
+            MPA1Out    or   MPA1B          MPA1Out               MEC:GIGE:25  SM4
+            MPA2In     or   MPA2A          MPA2In                MEC:GIGE:26  SM5
+            MPA2Xtal   or   MPA2F          GigE9                 MEC:GIGE:09  SM6     
+            MPA2Out    or   MPA2B          MPA2Out               MEC:GIGE:27  SM7
+            CompInNF   or   CompANF        CompInNF              MEC:GIGE:33  SM7
+            CompInFF   or   CompAFF        CompInFF              MEC:GIGE:32  SM8
+            CompOutNF  or   CompBNF        CompOutNF             MEC:GIGE:31  XPS?
+            CompOutFF  or   CompBFF        CompOutFF             MEC:GIGE:30  XPS?
+            Trap       or   Mousetrap      MEC_SPL_8             MEC:GIGE:16  None
+            TTIn       or   TTA            TTIn                  MEC:GIGE:34  None
+            TTOut      or   TTB            TTOut                 MEC:GIGE:35  None
+        
+        For every PV name (e.g. 'MEC:GIGE:24'), there is a corresponding SPL CAM Name (e.g. 'MEC_SPL_3')
+            and two Camera NickNames (e.g. 'Legend' and 'Regen'); there is also a motor that is
+            used to tune the beam to the crosshair shown on the camera's image (e.g. SmarAct SM0)
+        
+        With a single argument for GIGEnam given, function returns the corresponding PV name
+            :EXAMPLE: Name('Legend') and Name('Regen') and Name('MEC_SPL_3') all return 'MEC:GIGE:24'
+            
+        ***If hacking the function to use a non-MEC laser camera, use GIGEnam='custom:NAME:OF:GIGE:PV:HEAD'***
+            
+        Option: using returnAll=True will return not only the PV Name but also the first Camera NickName
+                and the SPL CAM Name in an array of format [NickName_0, SPL CAM Name, PV Name]
+              : using returnAll=False is the typical usage that returns just the PV Name
+        """
+        NickNameList=[['Legend','Regen'], ['StrInA','TopasA'], ['StrInB','TopasB'], ['MPA1In','MPA1A'], ['MPA1Out','MPA1B'], ['MPA2In','MPA2A'], ['MPA2Xtal','MPA2F'],
+                      ['MPA2Out','MPA2B'], ['CompInNF', 'CompANF'], ['CompInFF', 'CompAFF'], ['CompOutNF', 'CompBNF'], ['CompOutFF', 'CompBFF'], ['Trap', 'Mousetrap'],
+                      ['TTIn','TTA'], ['TTOut','TTB']]
+        SPLNameList=['Regen', 'StrinA', 'StrinB', 'MPA1In', 'MPA1Out', 'MPA2In', 'GigE9',
+                     'MPA2Out', 'CompInNF', 'CompInFF', 'CompOutNF', 'CompOutFF',
+                     'MEC_SPL_8', 'TTIn', 'TTOut']
+        PVNameList=['MEC:GIGE:24', 'MEC:GIGE:22', 'MEC:GIGE:28', 'MEC:GIGE:23', 'MEC:GIGE:25', 'MEC:GIGE:26', 'MEC:GIGE:09',
+                    'MEC:GIGE:27', 'MEC:GIGE:33', 'MEC:GIGE:32', 'MEC:GIGE:31', 'MEC:GIGE:30',
+                    'MEC:GIGE:16', 'MEC:GIGE:34', "MEC:GIGE:35"]
+        SmarActList=['SM0','SM1','SM2','SM3','SM4','SM5','SM6','SM7','SM7','SM8','XPS?',
+                     'XPS?','None','None','None']
+        pos=np.where(np.array([list(map(lambda name: name.casefold(), NickName)) for NickName in  np.array(NickNameList)])==GIGEnam.casefold())
+        if len(pos[0]) > 0:
+            if returnAll==True:
+                return [NickNameList[pos[0][0]][0], SPLNameList[pos[0][0]], PVNameList[pos[0][0]]] 
+            else:
+                return PVNameList[pos[0][0]]
+        pos2=np.where(np.array(list(map(lambda name: name.casefold(), np.array(SPLNameList))))==GIGEnam.casefold())
+        if len(pos2[0]) > 0:
+            if returnAll==True:
+                return [NickNameList[pos2[0][0]][0], SPLNameList[pos2[0][0]], PVNameList[pos2[0][0]]] 
+            else:
+                return PVNameList[pos2[0][0]]
+        pos3=np.where(np.array(list(map(lambda name: name.casefold(), np.array(PVNameList))))==GIGEnam.casefold())
+        if len(pos3[0]) > 0:
+            if returnAll==True:
+                return [NickNameList[pos3[0][0]][0], SPLNameList[pos3[0][0]], PVNameList[pos3[0][0]]] 
+            else:
+                return PVNameList[pos3[0][0]]
+        else:
+            if GIGEnam[:7]=='custom:':
+                #print("Using custom camera name: "+GIGEnam[7:])
+                if returnAll==True:
+                    return [GIGEnam[7:],'','']
+                else:
+                    return GIGEnam[7:]
+            else:
+                print('{:<30} {:<21} {:<11}  {:<10}'.format('Camera NickName', 'CamViewer   ', 'PV Name', 'Motor'))
+                for ii in range(len(NickNameList)):
+                    print('{:<10} or   {:<12}   {:<21} {:<11}  {:<10}'.format(str(NickNameList[ii][0]), str(NickNameList[ii][1]), str(SPLNameList[ii]), str(PVNameList[ii]), str(SmarActList[ii])))
+                return False
+
+    def _NameOLD(GIGEnam='none',returnAll=False):
+        """
+        There are three types of camera names: the PV Name, the SPL CAM Name, and the NickName
+        This function helps display the table of names and also translates NickNames and SPL CAM Names
+            into the PV Names, which are needed to run the different camera viewer utilities (etc.)
+            
+        With no argument given, Name() returns a list of names of all cameras
+        Example: Name() prints out a table with all supported GigE cameras -- something like this:
             Camera NickName                SPL CAM Name          PV Name      Motor
             Legend     or   Regen          MEC_SPL_3             MEC:GIGE:24  SM0
             StrInA     or   TopasA         MEC_SPL_1             MEC:GIGE:22  SM1
@@ -5236,13 +5380,13 @@ class CAM:
             MPA1In     or   MPA1A          MEC_SPL_2             MEC:GIGE:23  SM3
             MPA1Out    or   MPA1B          MEC_SPL_4             MEC:GIGE:25  SM4
             MPA2In     or   MPA2A          MEC_SPL_5             MEC:GIGE:26  SM5
-            MPA2Xtal   or   MPA2F          GigE17_TimeTool_Diag  MEC:GIGE:17  SM6
+            MPA2Xtal   or   MPA2F          GigE17_TimeTool_Diag  MEC:GIGE:17  SM6     NOW GigE9 MEC:GIGE:09
             MPA2Out    or   MPA2B          MEC_SPL_6             MEC:GIGE:27  SM7
-            CompIn     or   CompA          MEC_SPL_9             MEC:GIGE:29  SM8
+            CompIn     or   CompA          MEC_SPL_9             MEC:GIGE:29  SM8     NOW NO LONGER EXISTS.
             CompOutFF  or   CompBFF        MEC_SPL_10            MEC:GIGE:30  XPS Mid
             CompOutNF  or   CompBNF        MEC_SPL_11            MEC:GIGE:31  XPS In
-            Trap       or   Mousetrap      MEC_SPL_8             MEC:GIGE:16  None
-            SPFloat1   or   SPFloater1     MEC_SPL_12            MEC:GIGE:32
+            Trap       or   Mousetrap      MEC_SPL_8             MEC:GIGE:16  None    look for MEC_SPL_8
+            SPFloat1   or   SPFloater1     MEC_SPL_12            MEC:GIGE:32          NOW CompInFF
             CompInNF   or   CompANF        MEC_SPL_13            MEC:GIGE:33
             TTIn       or   TTA            MEC_SPL_14            MEC:GIGE:34
             TTOut      or   TTB            MEC_SPL_15            MEC:GIGE:35
@@ -5301,6 +5445,7 @@ class CAM:
                 for ii in range(len(NickNameList)):
                     print('{:<10} or   {:<12}   {:<21} {:<11}  {:<10}'.format(str(NickNameList[ii][0]), str(NickNameList[ii][1]), str(SPLNameList[ii]), str(PVNameList[ii]), str(SmarActList[ii])))
                 return False
+
 
     @classmethod
     def Jitter(cls,CAMreq,AcqNum=100,RepRateHz=-1,BeamSig=1):
@@ -5447,17 +5592,16 @@ class CAM:
         return
     
     @classmethod
-    def QuickSave(cls,CAMreq,ImageNo=2,FileNameQ='default'):#like MEC:GIGE:31
+    def QuickSave(cls,CAMreq,ImageNo=1,FileNameQ='default',AbsFilePathQ='default'):#like MEC:GIGE:31
         """
         saves 2D plot of the camera specified in CAMreq without trying to change acquisition status
         specify CAMreq using a Camera NickName, SPL Cam Name, or PV Name (i.e. from Name())
         Option: ImageNo should be 2 typically but could be set to 1 potentially
                 (recall that GigE IOCs produce multiple image streams)
                 (for AD cameras, try ImageNo=0 to trying talking to their ancient decrepit IOCs)
-        Option: Set the labels for the x-axis and y-axis with xlb and ylb, respectively
-        Option: Set the limits for the x-axis and y-axis with xlim and ylim, respectively
         """
         PVhead=cls.Name(CAMreq)
+        timestamp=datetime.now().strftime('%Y%m%d_%H%M%S')
         try:#if True:#try:
             if ImageNo in [1,2]:
                 tres1=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
@@ -5491,15 +5635,17 @@ class CAM:
         fig.tight_layout()
         if FileNameQ=='default':
             FileNameQ='GigE_'+cls.Name(CAMreq,returnAll=True)[0]
+        if AbsFilePathQ=='default':
+            AbsFilePathQ=GLOBAL.PSFILEPATH
         try:
-            fig.savefig(GLOBAL.PSFILEPATH+FileNameQ+'_'+datetime.now().strftime('%Y%m%d.%H%M%S')+'.png');
-            print('File saved as '+GLOBAL.PSFILEPATH+FileNameQ+'_'+datetime.now().strftime('%Y%m%d_%H%M%S')+'.png')
+            fig.savefig(AbsFilePathQ+FileNameQ+'_'+timestamp+'.png');
+            print('File saved as '+AbsFilePathQ+FileNameQ+'_'+timestamp+'.png')
         except:
             print('Save failed!')
         return
     
     @classmethod
-    def QuickSaveData(cls,CAMreq,ImageNo=2,FileNameQ='default'):#like MEC:GIGE:31
+    def QuickSaveData(cls,CAMreq,ImageNo=1,FileNameQ='default',AbsFilePathQ='default'):#like MEC:GIGE:31
         """
         saves 2D array of the camera specified in CAMreq without trying to change acquisition status
         specify CAMreq using a Camera NickName, SPL Cam Name, or PV Name (i.e. from Name())
@@ -5508,6 +5654,7 @@ class CAM:
                 (for AD cameras, try ImageNo=0 to trying talking to their ancient decrepit IOCs)
         """
         PVhead=cls.Name(CAMreq)
+        timestamp=datetime.now().strftime('%Y%m%d_%H%M%S')
         try:#if True:#try:
             if ImageNo in [1,2]:
                 tres1=efc.rPV(PVhead+':IMAGE'+str(ImageNo)+':ArraySize1_RBV')
@@ -5535,9 +5682,11 @@ class CAM:
             return
         if FileNameQ=='default':
             FileNameQ='GigE_'+cls.Name(CAMreq,returnAll=True)[0]
+        if AbsFilePathQ=='default':
+            AbsFilePathQ=GLOBAL.PSFILEPATH
         try:
-            np.savetxt(GLOBAL.PSFILEPATH+FileNameQ+'_'+datetime.now().strftime('%Y%m%d.%H%M%S')+'.txt', dat2d);
-            print('Array file saved as '+GLOBAL.PSFILEPATH+FileNameQ+'_'+datetime.now().strftime('%Y%m%d_%H%M%S')+'.txt')
+            np.savetxt(AbsFilePathQ+FileNameQ+'_'+timestamp+'.txt', dat2d);
+            print('Array file saved as '+AbsFilePathQ+FileNameQ+'_'+timestamp+'.txt')
         except:
             print('Array save failed!')
         return
@@ -5894,7 +6043,7 @@ class CAM:
 #             
 #         if command == 'INH':
 #             DG8_EF_Polarity = 'POS'
-#         elif command == 'ENA':
+#         elif command == 'ENA':1c1t5
 #             DG_8_EF_Polarity = 'NEG'
 #         else:
 #             print('Unanticipated command case!')
@@ -5903,6 +6052,55 @@ class CAM:
 
     @classmethod
     def ConfigReset(cls,CAMreq='all'):#not sure why these change sometimes -- config file somewhere? camera problem? 
+        """
+        if default CAMreq='all', executes the Config function serially on SPL1-10 with their own default values
+        can also accept a single specified camera input to reset
+        """
+
+        if CAMreq == 'all':
+            ResetList=['Legend','StrInA','StrInB','MPA1In','MPA1Out','MPA2In','MPA2Xtal','MPA2Out','CompInNF','CompInFF','CompOutNF','CompOutFF','TTIn','TTOut']
+        else:
+            ResetList=[cls.Name(CAMreq,returnAll=True)[0]]
+
+        for eaEntry in ResetList:
+            if eaEntry == 'Legend':
+                cls.Config(CAMreq='Legend',RefXhairXY=[351,222],MisalignmentTolerance=40,ImageNo=1, RefXhairXYsize=[100,100],LIVE=False,InstructionStr='DO NOT tune to xhair!')
+            elif eaEntry == 'StrInA':
+                cls.Config(CAMreq='StrInA',RefXhairXY=[279,241],MisalignmentTolerance=25,ImageNo=1, RefXhairXYsize=[50,50],LIVE=False,InstructionStr='Use SM0 (NOT SM1!) to put centroid on xhair!')
+            elif eaEntry == 'StrInB':
+                cls.Config(CAMreq='StrInB',RefXhairXY=[342,221],MisalignmentTolerance=40,ImageNo=1, RefXhairXYsize=[5,5],LIVE=False,InstructionStr='Use SM2 to put centroid on xhair!')
+            elif eaEntry == 'MPA1In':
+                cls.Config(CAMreq='MPA1In',RefXhairXY=[139,221],MisalignmentTolerance=15,ImageNo=1, RefXhairXYsize=[80,100],LIVE=False,InstructionStr='Use SM3 to put centroid on xhair!')
+            elif eaEntry == 'MPA1Out':
+                cls.Config(CAMreq='MPA1Out',RefXhairXY=[172,200],MisalignmentTolerance=15,ImageNo=1, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM4 to maximize spot!')
+            elif eaEntry == 'MPA2In':
+                cls.Config(CAMreq='MPA2In',RefXhairXY=[301,226],MisalignmentTolerance=15,ImageNo=1, RefXhairXYsize=[220,180],LIVE=False,InstructionStr='Use SM5(V) to put centroid on xhair!')
+            elif eaEntry == 'MPA2Xtal':
+                cls.Config(CAMreq='MPA2Xtal',RefXhairXY=[419,201],MisalignmentTolerance=40,ImageNo=1, RefXhairXYsize=[90,80],LIVE=False,InstructionStr='Use SM7 (and SM6) to put centroid on xhair!')
+            elif eaEntry == 'MPA2Out':
+                cls.Config(CAMreq='MPA2Out',RefXhairXY=[377,212],MisalignmentTolerance=40,ImageNo=1, RefXhairXYsize=[320,280],LIVE=False,InstructionStr='Use SM7 to put centroid on xhair!')
+            elif eaEntry == 'CompOutNF':
+                cls.Config(CAMreq='CompOutNF',RefXhairXY=[230,230],MisalignmentTolerance=40,ImageNo=1, RefXhairXYsize=[150,150],LIVE=False,InstructionStr='Do something!!')
+            elif eaEntry == 'TTIn':
+                cls.Config(CAMreq='TTIn',RefXhairXY=[377,263],MisalignmentTolerance=50,ImageNo=1, RefXhairXYsize=[20,20],LIVE=False,InstructionStr='Do something!!')
+            elif eaEntry == 'TTOut':
+                cls.Config(CAMreq='TTOut',RefXhairXY=[377,263],MisalignmentTolerance=50,ImageNo=1, RefXhairXYsize=[20,20],LIVE=False,InstructionStr='Do something!!')
+            else:
+                print('Camera configuration not found: '+eaEntry)
+        return
+
+#            elif eaEntry == 'CompInNF':
+#                cls.Config(CAMreq='CompInNF',RefXhairXY=[276/2,252/2],MisalignmentTolerance=50,ImageNo=1, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM8 to put centroid on xhair!')
+#            elif eaEntry == 'CompInFF':
+#                cls.Config(CAMreq='CompInFF',RefXhairXY=[276/2,252/2],MisalignmentTolerance=50,ImageNo=1, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use SM8 to put centroid on xhair!')
+#            elif eaEntry == 'CompOutFF':
+#                cls.Config(CAMreq='CompOutFF',RefXhairXY=[292,300],MisalignmentTolerance=25,ImageNo=1, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Use XPS2 Mid (and Input) Mirror to align to xhair!')
+#            elif eaEntry == 'Trap':
+#                cls.Config(CAMreq='Trap',RefXhairXY=[215,156],MisalignmentTolerance=40,ImageNo=2, RefXhairXYsize=[40,40],LIVE=False,InstructionStr='Watch for back reflections!!')
+
+
+    @classmethod
+    def _ConfigResetOLD(cls,CAMreq='all'):#not sure why these change sometimes -- config file somewhere? camera problem? 
         """
         if default CAMreq='all', executes the Config function serially on SPL1-10 with their own default values
         can also accept a single specified camera input to reset
@@ -5944,6 +6142,32 @@ class CAM:
                 print('Camera configuration not found: '+eaEntry)
         return
                 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6069,7 +6293,7 @@ class DG645:
         - restore saved data from a snapshot function into the corresponding DG645
         - perform snapshots of multiple DG boxes at the same, etc.
         - change labels of channels to be more descriptive
-    """
+    """      
 # =============================================================================
 #     def Refresh():
 #         """
@@ -6133,8 +6357,46 @@ class SPL:#pointing, alignment, and other macros + automation routines
         - aligment functions
         - other macros + automation routines
     """
-    pass
+    @classmethod
+    def alignment_mode(cls):
+        efc.wPV('MEC:LAS:EVR:01:TRIG3:TCTL',0)#disable SPL Slicer trigger from New LAS EVR Front Panel 3       
+        efc.wPV('MEC:LAS:EVR:01:TRIG4:TCTL',0)#disable UNIBLITZ trigger from New LAS EVR Front Panel 4
+        efc.wPV('MEC:LAS:DDG:08:abOutputPolarityBO',1)#open 65mm shutter by changing DG645 output polarity to POS
+        efc.wPV('MEC:LAS:DDG:08:cdOutputPolarityBO',1)#open 6mm shutter by changing DG645 output polarity to POS
+        efc.wPV('MEC:LAS:DDG:08:triggerInhibitMO',3)#enable inhibit on 65mm shutter and 6mm shutter DG645 outputs
+        cls.gige_trig_5Hz()
 
+    @classmethod
+    def mpa2ss_mode(cls):
+        efc.wPV('MEC:LAS:EVR:01:TRIG3:TCTL',0)#disable SPL Slicer trigger from New LAS EVR Front Panel 3       
+        efc.wPV('MEC:LAS:EVR:01:TRIG4:TCTL',1)#enable UNIBLITZ trigger from New LAS EVR Front Panel 4
+        efc.wPV('MEC:LAS:EVR:01:TRIG4:TEC',177)#write single-shot UNIBLITZ event code to New LAS EVR Front Panel 4
+        efc.wPV('MEC:LAS:DDG:08:cdOutputPolarityBO',0)#close 6mm shutter by changing DG645 output polarity to NEG
+        efc.wPV('MEC:LAS:DDG:08:abOutputPolarityBO',0)#close 65mm shutter by changing DG645 output polarity to NEG
+        efc.wPV('MEC:LAS:DDG:08:triggerInhibitMO',0)#disable inhibit on 65mm shutter and 6mm shutter DG645 outputs
+        cls.gige_trig_ss()
+
+    @staticmethod
+    def gige_trig_ss():
+        GigElist=['24','22','28','23','25','26','27','30','31','16','32','33','34','35']#skipping :09 MPA2Xtal 
+        for camhandle in GigElist:
+            try:
+                efc.wPV('MEC:GIGE:'+camhandle+':TriggerMode',1)#set camera to external trigger mode
+                efc.wPV('MEC:GIGE:'+camhandle+':Acquire',1)#set camera to acquire; worry about timeout??
+            except:
+                print('Failed to set: MEC:GIGE:'+camhandle)
+        efc.wPV('MEC:LAS:DDG:08:efOutputPolarityBO',1)#set POS polarity on Uniblitz DG645 EF which inhibits the GigE trigger server DG535
+
+    @staticmethod
+    def gige_trig_5Hz():
+        GigElist=['24','22','28','23','25','26','27','30','31','16','32','33','34','35']#skipping :09 MPA2Xtal 
+        for camhandle in GigElist:
+            try:
+                efc.wPV('MEC:GIGE:'+camhandle+':TriggerMode',1)#set camera to external trigger mode
+                efc.wPV('MEC:GIGE:'+camhandle+':Acquire',1)#set camera to acquire; worry about timeout??
+            except:
+                print('Failed to set: MEC:GIGE:'+camhandle)
+        efc.wPV('MEC:LAS:DDG:08:efOutputPolarityBO',0)#set NEG polarity on Uniblitz DG645 EF which DOESN'T inhibit the GigE trigger server DG535 -- it will always externally trigger at 5Hz
 
 
 
@@ -6532,17 +6794,17 @@ class GLOBAL:
     Ecoeff2in2wIJ=EpicsSignal('MEC:LAS:FLOAT:40')
     #(w/y/s1in1w/s42in1w/s42in2w/s + DateStr/today, RunNum, RunFilePath, PulseEnergies; notepadPVs: HAWG; YFE; 1w,2w,etc.; recipe  better than pickle?)
 
-    #last updated 20220128
+    #last updated 20230316
     EcoeffYFEval=0.3285 #was .3578
-    Ecoeff1in1wCDval=0.5871
-    Ecoeff2in1wABval=224.0
-    Ecoeff2in1wEFval=177.5
-    Ecoeff2in1wGHval=260.9826
-    Ecoeff2in1wIJval= 113.2
-    Ecoeff2in2wABval=134.0135*0.9250
-    Ecoeff2in2wEFval=165.2398*0.9978
-    Ecoeff2in2wGHval=194.1412*1.0653
-    Ecoeff2in2wIJval=156.9307*0.9198
+    Ecoeff1in1wCDval=0.7082#0.7718 # 0.5871
+    Ecoeff2in1wABval=108.4#224.0
+    Ecoeff2in1wEFval=199.2#177.5
+    Ecoeff2in1wGHval=317.9#260.9826
+    Ecoeff2in1wIJval=94.6#113.2
+    Ecoeff2in2wABval=141.6#138.4#143.0#158.9#134.0135*0.9250
+    Ecoeff2in2wEFval=152.2#121.2#174.7#165.2398*0.9978
+    Ecoeff2in2wGHval=205.6#121.9#142.6#127.1#172.3#194.1412*1.0653
+    Ecoeff2in2wIJval=175.9#142.4#145.3#153.0#147.7#156.9307*0.9198
     
     EcoeffRE1 = 1.64e5
     EcoeffRE0 = 1.03156061e-01 
@@ -6666,8 +6928,8 @@ class GLOBAL:
     PSFILEPATH='/reg/neh/operator/mecopr/mecpython/pulseshaping/'
     
     HIGHLAND_IP = 'highland-mec-01'
-    LECROY_A_IP = '172.21.46.120' ###TEMP SUBSTITUTE### #'172.21.46.100'#'scope-ics-meclas-lecroy-a'
-    LECROY_B_IP = '172.21.46.120'#'scope-ics-meclas-lecroy-b'#
+    LECROY_A_IP = '172.21.46.100' #permanent: '172.21.46.100'#'scope-ics-meclas-lecroy-a'
+    LECROY_B_IP = '172.21.46.100'###TEMP SUBSTITUTE### #permanent: '172.21.46.120'#'scope-ics-meclas-lecroy-b'#
     LECROY_1_IP = '172.21.46.60'#'scope-ics-mectc1-1'
     LECROY_2_IP = '172.21.46.128'#'scope-ics-meclas-lecroy-02'
     LECROY_L_IP = '172.21.160.252'#'scope-ics-meclas-lecroy-02'
@@ -6742,9 +7004,69 @@ class GLOBAL:
         efc.wPV('MEC:LAS:ARRAY:12.DESC', 'Spare Grafana:1000')
         efc.wPV('MEC:LAS:ARRAY:13.DESC', 'Spare Grafana:1000')
         efc.wPV('MEC:LAS:ARRAY:14.DESC', 'Spare Grafana:1000')
+
+
+class Ben:#routines for LaserNet Ben
+    """
+    Routines for LaserNet Ben
+    """
         
+    def save_stuff(Lecroy_scope='A',chan_to_eLog=4):
+        """
+        Saves LecroyA Ch.4
+        Saves camera LPL_100J_1
+        """
+        ExpName=LPL.get_curr_exp()
+        RunNumber=LPL.get_curr_run()
+        print(RunNumber)
+        path_extension='/lecroy/'
+        fpQ=str('/reg/neh/operator/mecopr/experiments/'+ExpName+path_extension)
+        chan_to_eLog = int(chan_to_eLog)
+        if chan_to_eLog not in [1,2,3,4]:
+            print('Channel must be 1, 2, 3, or 4! Using channel 4 as default.')
+            chan_to_eLog=4;
+        if not os.path.exists(fpQ[-len(path_extension)]):
+            print('File path '+fpQ[-len(path_extension)]+' does not exist! Trying to create it...')
+            try:
+                os.makedirs(fpQ[-len(path_extension)]);print('Folder created successfully!');
+                os.chmod(fpQ[-len(path_extension)],stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO);
+            except:
+                print('Failed to create '+fpQ[-len(path_extension)]+'!')
+        if not os.path.exists(fpQ):
+            print('File path '+fpQ+' does not exist! Trying to create it...')
+            try:
+                os.makedirs(fpQ);print('Folder created successfully!');
+                os.chmod(fpQ,stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO);
+            except:
+                print('Failed to create '+fpQ+'!')
+        try:
+            mecel = elog.ELog({'experiment':ExpName},user='mecopr',pw=pickle.load(open(GLOBAL.PSFILEPATH+'elogauth.p','rb')))
+            #print('Connected to eLog of current MEC experiment, which is: '+ExpName)
+        except:
+            print('Failed to connect to eLog!')
+            
+        timestamp=datetime.now().strftime('%Y%m%d_%H%M%S')
+            
+        try:
+            chdata=LOSC(Lecroy_scope).rchallxy();
+        except:
+            print('Failed to read out data!')
+        np.savetxt(fpQ+'lecroyA_ch'+str(4)+'_'+timestamp+'.txt',np.c_[chdata[3][0], chdata[3][1]])
+        ep.lxysav(chdata[chan_to_eLog-1][0],chdata[chan_to_eLog-1][1],fpQ+'lecroyA_ch'+str(4)+'_'+timestamp+'.png',abs_path=True)
+        fullmsg=str('Scope trace data for Ch. 4 saved to '+fpQ+' with time stamp '+timestamp+' from run '+str(RunNumber)+'. Attached are the data and plot files for channel '+str(chan_to_eLog)+'.')
+        #eplxy(chdata[chan_to_eLog-1][0],chdata[chan_to_eLog-1][1])
+        try:
+            CAM.QuickSave("custom:MEC:GIGE:36", ImageNo=1, AbsFilePathQ=fpQ)
+            CAM.QuickSaveData("custom:MEC:GIGE:36", ImageNo=1, AbsFilePathQ=fpQ)
+        except:
+            print('Failed to save camera data!')
 
-
-
-
-
+        try:
+            mecel.post(fullmsg,attachments=[fpQ+'lecroyA_ch'+str(4)+'_'+timestamp+'.txt', fpQ+'lecroyA_ch'+str(4)+'_'+timestamp+'.png'], tags=['scope_trace'])
+            print('Auto-saved to eLog.') 
+        except:
+            print('Failed to auto-save to eLog!')        
+        
+        
+        
+        
