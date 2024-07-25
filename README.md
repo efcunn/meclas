@@ -1,2 +1,2 @@
-# mecps
-MEC pulse shaping code, last updated: 2022May23
+# meclas
+MEC laser and pulse shaping code, last updated: 2024Jul25
