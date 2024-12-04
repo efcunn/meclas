@@ -466,7 +466,7 @@ class LPL:
         Accepts pre-formatted input, measurement, and goal waveforms to calculate next-iteration input waveform using specified step size
         """
         G, M, I = DesiredOutputPulseShape, MeasuredOutputPulseShape, InputPulseShape
-        NewInputPulseShape=np.clip([abs((StepQ*(G[ii]-M[ii]))+I[ii])*math.ceil(G[ii]) for ii in range(len(G))],0,1)#math.ceil(G) is a mask that disallows values outside the goal
+        NewInputPulseShape=np.clip([abs((StepQ*(G[ii]-M[ii]))+I[ii])*np.abs(np.sign(G[ii])) for ii in range(len(G))],0,1)#np.abs(np.sign(G[ii])) is a mask that disallows values outside the goal
         return NewInputPulseShape
 
     def _FixEdges(WavF,DurationListQ,StartStopListQ,PtNumFront=3,PtNumBack=2,CorrFactorFront=.97,CorrFactorBack=1.):
@@ -511,8 +511,8 @@ class LPL:
                 if fWavF[ii] > 1:
                     fWavF[ii]=1.0
             else:
-                if fWavF[ii]>28000:
-                    fWavF[ii]=28000
+                if fWavF[ii]>GLOBAL.PDMAX_TEST:
+                    fWavF[ii]=GLOBAL.PDMAX_TEST
         return fWavF
     
     def _SmoothWvfm(wvfm_in):
@@ -1012,7 +1012,7 @@ class LPL:
             else:
                 print('Unanticipated pulse shot array length: '+str(len(stoday[-1])));
                 print('Aborting...');return
-            wupd=cls._wIter2(stoday[-1],np.array(wtoday[-1])/28000.,Psns,SSs,Jreq,mapnow,AQ)
+            wupd=cls._wIter2(stoday[-1],np.array(wtoday[-1])/(GLOBAL.PDMAX_TEST*1.0),Psns,SSs,Jreq,mapnow,AQ)
         else:
             print('No shots yet today; beginning with pre-loaded shape')
             try:
@@ -1023,7 +1023,7 @@ class LPL:
         ##EXECUTE THIS FILE FIRST TO DETERMINE THE UPDATED WAVEFORM
 
     @classmethod
-    def psefc10Hz(cls,pwt='curr',numIterQ=50,AQQ=0.03,displayPlot=True,reloopPrompt=True,YFEbkgrdY=-.004,PtNumFront=3,PtNumBack=2,CorrFactorFront=.97,CorrFactorBack=1.0,avgfwhm=9,avgrange=1):
+    def psefc10Hz(cls,pwt='curr',numIterQ=50,AQQ=0.1,displayPlot=True,reloopPrompt=True,YFEbkgrdY=-.004,PtNumFront=3,PtNumBack=2,CorrFactorFront=.97,CorrFactorBack=1.0,avgfwhm=9,avgrange=1):
         """
         Looks at last 10Hz YFE waveform, calculates new suggested update to Highland AWG to step towards pulse waveform target pwt
         Also generates side-by-side plots of current YFE waveform & pwt (left) and of residual difference between the two (right)
@@ -1116,11 +1116,11 @@ class LPL:
                             axss[0].set_data(xdat,ops0F); axs[0].relim(); axs[0].autoscale_view(True,True,True);
                             axss[1].set_data(list(range(len(meanerr))),meanerr); axs[1].relim(); axs[1].autoscale_view(True,True,True);
                             fig.canvas.draw_idle(); plt.pause(0.01);
-                        usa0=cls._UpdatingShapingAlgorithm(pwtF,ops0F,np.array(rph)/28000.,AQQ)#.075#.25
+                        usa0=cls._UpdatingShapingAlgorithm(pwtF,ops0F,np.array(rph)/(GLOBAL.PDMAX_TEST*1.0),AQQ)#.075#.25
                         usa0FE=cls._FixEdges(usa0,Psns,SSs,CorrFactorFront=CorrFactorFront,CorrFactorBack=CorrFactorBack,PtNumFront=PtNumFront,PtNumBack=PtNumBack)
                         #usa0FE=_FixEdges(usa0,[3,4.25],[[.98*100/8.0,100/8.0],[98,100]])
-                        #epll([rph,usa0FE*28000.])
-                        SH._WritePulseHeights(usa0FE*28000.);time.sleep(0.05);
+                        #epll([rph,usa0FE*(GLOBAL.PDMAX_TEST * 1.0)])
+                        SH._WritePulseHeights(usa0FE*(GLOBAL.PDMAX_TEST *1.0));time.sleep(0.05);
                         ops00=ops0[:]
     #        if displayPlot:
     #            epll([pwtF,ops0F])
@@ -1157,7 +1157,7 @@ class LPL:
         cls._pshostcheck()
         wupdt=newwavQ[:]
         if max(wupdt) < 1.5:
-            wupdt=28000.0*np.array(wupdt)
+            wupdt=(GLOBAL.PDMAX_TEST * 1.0)*np.array(wupdt)
         try:
             HAWG().WritePulseHeights(wupdt);
         except:
@@ -1407,7 +1407,7 @@ class LPL:
             return NewWvfm
 
     @classmethod
-    def psrefrwvfm(cls,RecipeStrQ='latest',numStepsQ=50,stepSizeQ=0.25,YFEbkgrdY=-.004,displayPlot=True,reloopPrompt=True):
+    def psrefrwvfm(cls,RecipeStrQ='latest',numStepsQ=50,stepSizeQ=0.1,YFEbkgrdY=-.004,displayPlot=True,reloopPrompt=True):
         """
         Refreshes 10Hz YFE waveform according to target shape given by previously-saved recipe
         
@@ -2237,7 +2237,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20240725')
+        print('Last stamped: 20241203')
         
     def reloadpkg():
         """
@@ -3669,7 +3669,7 @@ class HAWG:
 #         pass
 # =============================================================================
     
-    def FidOn(self,amplitude=20000,delay_ps=45125):
+    def FidOn(self,amplitude=6000,delay_ps=45125):
         """
         Shortcut function for turning on the Highland's fiducial impulse used for proper timing of the oscilloscope delay
         If necessary, non-standard values can be passed into the function using
@@ -3741,6 +3741,9 @@ class LOSC:
         LStrQ='B' #for the four 2in1w diodes
         LStrQ='1' #for the instruments scientists' oscilloscope
         LStrQ='2' #for the four 2in2w diodes
+        
+        ***If hacking the function to use a non-MEC LeCroy scope, use LStrQ='custom:IP_address' (use at your own risk)***
+
         """
         if   str(LStrQ).lower() == 'a':
             self._hostIP = GLOBAL.LECROY_A_IP #'172.21.46.100'#'scope-ics-meclas-lecroy-a'
@@ -3757,6 +3760,9 @@ class LOSC:
         elif str(LStrQ).lower() == 'l':
             self._hostIP = GLOBAL.LECROY_L_IP #'172.21.160.252'#'scope-ics-meclas-lecroy-02'
             self._name = 'LeCroyL'
+        elif str(LStrQ).lower()[:6] == 'custom':
+            self._hostIP = str(str(LStrQ).lower()[7:])
+            self._name = 'LeCroy'+str(LStrQ)
         else:
             print('Invalid scope name! Choose 1, 2, A, or B!!')
             return False
@@ -4640,6 +4646,7 @@ class YFE:
     Usage can simply proceed via YFE.[command]
     Potential commands include:
         :OnCheck() #checks whether YFE is on or off
+        :CommCheck() #checks whether the eDrives are communicating or not
         :On() #initiates turn-on sequence
         :Off() #initiates shut-off sequence
         :Get() #retrieves eDrive current sepoints and RBVs
@@ -4672,6 +4679,44 @@ class YFE:
         if display:
             print('Current status: '+str(statuslist))
         return YFEonbool
+    
+    def CommCheck(display=True):
+        """
+        Checks whether eDrives are communicating or not, using the readback on
+            the temperature/voltage/pulse width as feedback (typical symptom of comm issues)
+        Use display=True to print current comm check to terminal
+        Use display=False to avoid printing current comm check to terminal 
+        """
+        YFEadd='MEC:LPL:LCO:0'
+        YFEamp=['2','3','5','6','1','4']
+        YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL',':ClearFault',':PulseWidth_RBV']
+        print('Checking for eDrive comm issues...')
+        tempdegCpvlist=[]
+        voltageVpvlist=[]
+        pulsewidthuspvlist=[]
+        for ii in range(len(YFEamp)):
+            temprbvemispv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[2])
+            voltageVpvlist.append(temprbvemispv.get())#check voltage
+            temprbvemispv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[3])
+            tempdegCpvlist.append(temprbvemispv.get())#check temperature
+            temprbvemispv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[8])
+            pulsewidthuspvlist.append(temprbvemispv.get())#check pulse width
+        commsbool=True#innocent until proven guilty
+        if min(tempdegCpvlist) < 15:
+            print('Warning! Either a chiller is VERY cold, or at least one of the eDrives is not communicating!')
+            commsbool=False
+        if min(voltageVpvlist) < 1:
+            print('Warning! Voltage of at least one eDrive is low! Check the comms or the TDKLambda.')
+            commsbool=False
+        if min(pulsewidthuspvlist) < 350:
+            print('Warning! Either a pulse width is WAY too short, or at least one of the eDrives is not communicating!')
+            commsbool=False
+        if display:
+            print('Current status:')
+            print('temp (degC): ' + str(tempdegCpvlist))
+            print('voltage (V): ' + str(voltageVpvlist))
+            print('pulse width (us): ' + str(pulsewidthuspvlist)) 
+        return commsbool
 
     @classmethod
     def On(cls,CtrlChk=True):
@@ -4681,12 +4726,14 @@ class YFE:
         Use CtrlChk=False to avoid check the LPL control system as part of the turn-on procedure
         """
         if YFE.OnCheck(display=False):
-            print('YFE emission already enabled.');return
-        if GLOBAL.LPLPCpwr.get() != 1:
+            print('YFE emission already enabled.');return True
+        if YFE.CommCheck(display=False) == False:
+           print('ERROR! eDrive communication error suspected... Check the eDrive EDM screen.'); return False
+        if GLOBAL.LPLPCpwr.get() != 1 and GLOBAL.LPLPCpwr.get() != 3:
             GLOBAL.LPLPCpwr.put(1)
-        if GLOBAL.LPLVACpwr.get() != 1:
+        if GLOBAL.LPLVACpwr.get() != 1 and GLOBAL.LPLPCpwr.get() != 3:
             GLOBAL.LPLVACpwr.put(1)
-        if GLOBAL.LPLPS1pwr.get() != 1:
+        if GLOBAL.LPLPS1pwr.get() != 1 and GLOBAL.LPLPCpwr.get() != 3:
             GLOBAL.LPLPS1pwr.put(1)
         YFEadd='MEC:LPL:LCO:0'
         YFEamp=['2','3','5','6','1','4']
@@ -4721,7 +4768,8 @@ class YFE:
             cls.SetAll(False,displayQ=False)
             print('MBC not configured properly!')
             MBC.Reset()
-            cls.On(CtrlChk=False);
+            tempbool=cls.On(CtrlChk=False);
+            return tempbool #avoid re-running the bottom text in true or false case
         else: #later add check to avoid over-energizing by reading power meter
             for ii in range(len(YFEamp)):
                 tempsetcurrpv=EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[1])
@@ -4739,11 +4787,11 @@ class YFE:
                 print('Turn on sequence failed. Check emission!')
                 cls.Off();
                 return False
-        if GLOBAL.LPLPCpwr.get() != 1:
+        if GLOBAL.LPLPCpwr.get() != 1 and GLOBAL.LPLPCpwr.get() != 3:
             print('Failed to turn on Pockels cell!')
-        if GLOBAL.LPLVACpwr.get() != 1:
+        if GLOBAL.LPLVACpwr.get() != 1 and GLOBAL.LPLPCpwr.get() != 3:
             print('Failed to turn on scroll pump!')
-        if GLOBAL.LPLPS1pwr.get() != 1:
+        if GLOBAL.LPLPS1pwr.get() != 1 and GLOBAL.LPLPCpwr.get() != 3:
             print('Failed to turn on YFE PS1!')
         return True
 
@@ -4806,21 +4854,21 @@ class YFE:
             changelist=range(4)
             tempoldcurr02pv=EpicsSignal(YFEadd+YFEamp[changelist[0]]+YFEsuf[1])
             oldcurrQ=str(tempoldcurr02pv.get())
-            if currQ>88:
+            if currQ>GLOBAL.YFE02MM_MAX:
                 print('Too high!')
                 return
         elif mmQ==6:
             changelist=[4]
             tempoldcurr06pv=EpicsSignal(YFEadd+YFEamp[changelist[0]]+YFEsuf[1])
             oldcurrQ=str(tempoldcurr06pv.get())
-            if currQ>135:
+            if currQ>GLOBAL.YFE06MM_MAX:
                 print('Too high!')
                 return
         elif mmQ==10:
             changelist=[5]
             tempoldcurr10pv=EpicsSignal(YFEadd+YFEamp[changelist[0]]+YFEsuf[1])
             oldcurrQ=str(tempoldcurr10pv.get())
-            if currQ>140:
+            if currQ>GLOBAL.YFE10MM_MAX:
                 print('Too high!')
                 return
         else:
@@ -4854,7 +4902,7 @@ class YFE:
         YFEadd='MEC:LPL:LCO:0'
         YFEamp=['2','3','5','6','1','4']
         YFEsuf=[':SensedCurrent',':ActiveCurrent',':PowerSupply',':Temperature',':Emission_RBV',':Emission',':FaultState.RVAL']
-        YFElvl=[85,85,85,85,130,124];
+        YFElvl=[GLOBAL.YFE02MM_SETPT,GLOBAL.YFE02MM_SETPT,GLOBAL.YFE02MM_SETPT,GLOBAL.YFE02MM_SETPT,GLOBAL.YFE06MM_SETPT,GLOBAL.YFE10MM_SETPT];
         temppvlist=[]
         for ii in range(6):
             temppvlist.append(EpicsSignal(YFEadd+YFEamp[ii]+YFEsuf[1]))
@@ -4873,7 +4921,7 @@ class YFE:
         cls.Get(display=displayQ);
         return
 
-    def Trace():
+    def Trace(goal_display=False):
         """
         Plots the voltages of the diode trace for the YFE output waveform
         """
@@ -6933,6 +6981,16 @@ class GLOBAL:
     LECROY_1_IP = '172.21.46.60'#'scope-ics-mectc1-1'
     LECROY_2_IP = '172.21.46.128'#'scope-ics-meclas-lecroy-02'
     LECROY_L_IP = '172.21.160.252'#'scope-ics-meclas-lecroy-02'
+
+    PDMAX_TEST = 28000
+    
+    YFE02MM_MAX = 100
+    YFE06MM_MAX = 140
+    YFE10MM_MAX = 150
+    YFE02MM_SETPT = 90
+    YFE06MM_SETPT = 135
+    YFE10MM_SETPT = 145
+    
     
     
     @classmethod
