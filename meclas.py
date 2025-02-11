@@ -2237,7 +2237,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20241203')
+        print('Last stamped: 20250210')
         
     def reloadpkg():
         """
@@ -4217,11 +4217,11 @@ class LOSC:
             #np.savetxt(fpQ+'lecroy1_ch'+str(ii+1)+'_'+timestamp+'_run'+str(RunNumber)+'.dat',tuple(chdata[ii]))
             # save file in column 
             np.savetxt(fpQ+'lecroy1_ch'+str(ii+1)+'_'+timestamp+'_run'+str(RunNumber)+'.txt',np.c_[chdata[ii][0], chdata[ii][1]])
-        ep.lxysav(chdata[chan_to_eLog-1][0],chdata[chan_to_eLog-1][1],fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'.png',abs_path=True)
+        ep.lxysav(chdata[chan_to_eLog-1][0],chdata[chan_to_eLog-1][1],fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'_run'+str(RunNumber)+'.png',abs_path=True)
         fullmsg=str('Scope trace data for all 4 channels saved to '+fpQ+' with time stamp '+timestamp+' from run '+str(RunNumber)+'. Attached are the data and plot files for channel '+str(chan_to_eLog)+'.')
         #eplxy(chdata[chan_to_eLog-1][0],chdata[chan_to_eLog-1][1])
         try:
-            mecel.post(fullmsg,attachments=[fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'.txt', fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'.png'], tags=['scope_trace'])
+            mecel.post(fullmsg,attachments=[fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'_run'+str(RunNumber)+'.txt', fpQ+'lecroy1_ch'+str(chan_to_eLog)+'_'+timestamp+'_run'+str(RunNumber)+'.png'], tags=['scope_trace'])
             print('Auto-saved to eLog.') 
         except:
             print('Failed to auto-save to eLog!')
@@ -6989,7 +6989,7 @@ class GLOBAL:
     YFE10MM_MAX = 150
     YFE02MM_SETPT = 90
     YFE06MM_SETPT = 135
-    YFE10MM_SETPT = 145
+    YFE10MM_SETPT = 130
     
     
     
