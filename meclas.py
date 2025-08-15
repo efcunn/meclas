@@ -2237,7 +2237,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20250210')
+        print('Last stamped: 20250812')
         
     def reloadpkg():
         """
@@ -6640,15 +6640,6 @@ class CtrlSys:
             msgout=['{:<15}'.format(cmpnam[1])+'{:<28}'.format(cmpnam[0])+efc.cstr('{:<6}'.format('fail!'),'blink,r')]
         return msgout
 
-# =============================================================================
-#     @staticmethod
-#     def MECcompylist000():
-#         qqip=['172.21.46.147','172.21.46.148','172.21.46.146','172.21.46.60','172.21.46.128','172.21.46.100', '172.21.46.120','172.21.46.159', '172.21.46.197','172.21.46.142','172.21.46.70','172.21.46.78', '172.21.46.71','172.21.46.88','172.21.46.198','172.21.46.213','172.21.46.215','172.21.46.136', '172.21.46.218','172.21.46.219','172.21.46.182','172.21.46.144'];
-#         qqn=['evo1','evo2','gaia','lecroy1','lecroy2','lecroya','lecroyb','PIMikroMove','spider','spectrometer', 'tundra','topas','visar1','visar2','vitara','rga','emp','phasicslaptop','phasics1','phasics2','dacage','legend']
-#         nmlist=['mec-las-laptop06','mec-las-laptop07','mec-las-laptop05','scope-ics-mectc1-1','scope-ics-meclas-lecroy01','scope-ics-meclas-lecroy-a','scope-ics-meclas-lecroy-b','mec-las-laptop09','mec-las-laptop11','mec-las-laptop01','win-ics-mec-tundra','mec-las-laptop12','win-ics-mec-visar1','win-ics-mec-visar2','mec-las-vitara','mec-rga-laptop','scope-ics-mec-tektronix','mec-phasics-laptop01','win-ics-mec-phasics01','win-ics-mec-phasics02','mec-visar-cage','mec-las-laptop03']
-#         return list(zip(nmlist,qqip,qqn))
-# =============================================================================
-
     @staticmethod
     def _MECcompylist():
         """
@@ -6976,11 +6967,11 @@ class GLOBAL:
     PSFILEPATH='/reg/neh/operator/mecopr/mecpython/pulseshaping/'
     
     HIGHLAND_IP = 'highland-mec-01'
-    LECROY_A_IP = '172.21.46.100' #permanent: '172.21.46.100'#'scope-ics-meclas-lecroy-a'
-    LECROY_B_IP = '172.21.46.100'###TEMP SUBSTITUTE### #permanent: '172.21.46.120'#'scope-ics-meclas-lecroy-b'#
-    LECROY_1_IP = '172.21.46.60'#'scope-ics-mectc1-1'
-    LECROY_2_IP = '172.21.46.128'#'scope-ics-meclas-lecroy-02'
-    LECROY_L_IP = '172.21.160.252'#'scope-ics-meclas-lecroy-02'
+    LECROY_A_IP = 'scope-ics-meclas-lecroy-a'#'172.21.46.100' #permanent: '172.21.46.100'#'scope-ics-meclas-lecroy-a'
+    LECROY_B_IP = 'scope-ics-meclas-lecroy-b'####TEMP SUBSTITUTE### #permanent: '172.21.46.120'#'scope-ics-meclas-lecroy-b'#
+    LECROY_1_IP = 'scope-ics-mectc1-1'#'172.21.46.60'#'scope-ics-mectc1-1'
+    LECROY_2_IP = 'scope-ics-meclas-lecroy01'#'172.21.46.128'#'scope-ics-meclas-lecroy-02'
+    LECROY_L_IP = 'scope-ics-meclas-lecroy-02'#'172.21.160.252'#'scope-ics-meclas-lecroy-02'
 
     PDMAX_TEST = 28000
     
