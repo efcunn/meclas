@@ -2237,7 +2237,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20250812')
+        print('Last stamped: 20250917')
         
     def reloadpkg():
         """
@@ -6967,11 +6967,11 @@ class GLOBAL:
     PSFILEPATH='/reg/neh/operator/mecopr/mecpython/pulseshaping/'
     
     HIGHLAND_IP = 'highland-mec-01'
-    LECROY_A_IP = 'scope-ics-meclas-lecroy-a'#'172.21.46.100' #permanent: '172.21.46.100'#'scope-ics-meclas-lecroy-a'
-    LECROY_B_IP = 'scope-ics-meclas-lecroy-b'####TEMP SUBSTITUTE### #permanent: '172.21.46.120'#'scope-ics-meclas-lecroy-b'#
-    LECROY_1_IP = 'scope-ics-mectc1-1'#'172.21.46.60'#'scope-ics-mectc1-1'
-    LECROY_2_IP = 'scope-ics-meclas-lecroy01'#'172.21.46.128'#'scope-ics-meclas-lecroy-02'
-    LECROY_L_IP = 'scope-ics-meclas-lecroy-02'#'172.21.160.252'#'scope-ics-meclas-lecroy-02'
+    LECROY_A_IP = 'scope-ics-meclas-lecroy-a'#permanent: '172.21.43.37'#'scope-ics-meclas-lecroy-a'
+    LECROY_B_IP = 'scope-ics-meclas-lecroy-a'####TEMP SUBSTITUTE### #permanent: '172.21.43.31'#'scope-ics-meclas-lecroy-b'#
+    LECROY_1_IP = 'scope-ics-mectc1-1'#'172.21.43.23'#'scope-ics-mectc1-1'
+    LECROY_2_IP = 'scope-ics-meclas-lecroy01'#'172.21.43.25'#'scope-ics-meclas-lecroy01'#NOTE THE NAMING DISCREPANCY!!
+    LECROY_L_IP = 'scope-ics-meclas-lecroy02'#'172.21.43.36'#'scope-ics-meclas-lecroy02'(was a temporary scope used previously)
 
     PDMAX_TEST = 28000
     
