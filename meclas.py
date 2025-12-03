@@ -1875,6 +1875,7 @@ class ep:
         :llcomp #plot list of diode waveforms along with target waveform
         :lfft #quick plotting of FFT of provided waveform
         :ShotVsGoal #quick plotting of LPL shot vs goal waveform
+        :
     potential future work
         - consider consolidating some functions into one
             - e.g. getch with and without TimeOut?
@@ -2204,6 +2205,22 @@ class ep:
         goalData = LPL._PGToPowerVsTime(Psns=Psns,SSs=SSs,zzJQ=zzJQ,)
         cls.llxy([shotData,goalData], xlim=[-1, 1+0.25*np.count_nonzero(goalData)], xlb="Time (ns)", ylb="Power (W)",)
         return
+    
+    @classmethod
+    def QuickShotPlots(cls,DateStrQ,ShotNoQ):
+        """
+        Shorthand function for plotting the raw written files for the Highland, YFE, 1in1w, 2in1w, and 2in2w saved traces
+        for a given date and shot number from that day
+        """
+        try:
+            cls.l(efc.pickleload2(GLOBAL.PSFILEPATH + "w"+str(DateStrQ)+".p")[int(ShotNoQ)])
+            cls.l(efc.pickleload2(GLOBAL.PSFILEPATH + "y"+str(DateStrQ)+".p")[int(ShotNoQ)])
+            cls.l(efc.pickleload2(GLOBAL.PSFILEPATH + "s1in1w"+str(DateStrQ)+".p")[int(ShotNoQ)])
+            cls.ll(efc.pickleload2(GLOBAL.PSFILEPATH + "s42in1w"+str(DateStrQ)+".p")[int(ShotNoQ)])
+            cls.ll(efc.pickleload2(GLOBAL.PSFILEPATH + "s42in2w"+str(DateStrQ)+".p")[int(ShotNoQ)])
+        except:
+            print('Plot error -- check your input (are you *sure* this date and shot number exist in ' + GLOBAL.PSFILEPATH + '?) and try again!')
+        return
 
         
 class efc:
@@ -2237,7 +2254,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20250917')
+        print('Last stamped: 20251202')
         
     def reloadpkg():
         """
@@ -6842,8 +6859,8 @@ class GLOBAL:
     Ecoeff2in1wIJval=94.6#113.2
     Ecoeff2in2wABval=141.6#138.4#143.0#158.9#134.0135*0.9250
     Ecoeff2in2wEFval=152.2#121.2#174.7#165.2398*0.9978
-    Ecoeff2in2wGHval=205.6#121.9#142.6#127.1#172.3#194.1412*1.0653
-    Ecoeff2in2wIJval=175.9#142.4#145.3#153.0#147.7#156.9307*0.9198
+    Ecoeff2in2wGHval=175.3#182.5#205.6#121.9#142.6#127.1#172.3#194.1412*1.0653
+    Ecoeff2in2wIJval=157.8#139.0#175.9#142.4#145.3#153.0#147.7#156.9307*0.9198
     
     EcoeffRE1 = 1.64e5
     EcoeffRE0 = 1.03156061e-01 
