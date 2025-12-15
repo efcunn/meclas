@@ -2254,7 +2254,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20251202')
+        print('Last stamped: 20251215')
         
     def reloadpkg():
         """
@@ -3745,6 +3745,7 @@ class LOSC:
         :sumch #sum apmlitude of specified channel
         :save_scope_to_eLog #save specified channel amplitude to eLog
         :RestoreConfig #restore acquisition settings according to internal memory
+        :WordFormatReset #enforce 16-bit readout of scope waveform, not janky 8-bit :D
     There are also functions available for use with bare sockets; these tend to start with underscores.
     See the docstrings for more guidance.
     
@@ -3976,7 +3977,7 @@ class LOSC:
         while True:
             ready = (int(self._send_and_reply("INR?").split()[1]) & 1) == 1
             if ready:
-                rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL".format(str(ChannelNo)))
+                rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL,WORD".format(str(ChannelNo)))
                 fullaq = self._parsewf(rawdataq, verbose)
                 return fullaq
     def waitrch(self,ChannelNo,verbose=False):
@@ -3995,7 +3996,7 @@ class LOSC:
         while True:
             ready = (int(self._send_and_reply("INR?").split()[1]) & 1) == 1
             if ready:
-                rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL".format(str(ChannelNo)))
+                rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL,WORD".format(str(ChannelNo)))
                 fullaq = self._parsewf(rawdataq, verbose)
                 yvals=fullaq['DATA'];xvals=[fullaq['HORIZ_OFFSET'] + ii*fullaq['HORIZ_INTERVAL'] for ii in range(len(fullaq['DATA']))];
                 return [xvals,yvals]
@@ -4012,7 +4013,7 @@ class LOSC:
         Bare function for reading voltage data from the specified channel;
         socket must be explicitly opened/closed
         """
-        rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL".format(str(OChan)))
+        rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL,WORD".format(str(OChan)))
         return self._parsewf(rawdataq, False)['DATA']
     def rch(self,OChan):
         """
@@ -4027,7 +4028,7 @@ class LOSC:
         Bare function for reading voltage data and corresponding time data from the specified channel;
         socket must be explicitly opened/closed
         """
-        rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL".format(str(OChan)))
+        rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL,WORD".format(str(OChan)))
         fullaq=self._parsewf(rawdataq, False);
         yvals=fullaq['DATA'];xvals=[fullaq['HORIZ_OFFSET'] + ii*fullaq['HORIZ_INTERVAL'] for ii in range(len(fullaq['DATA']))];
         return [xvals,yvals]
@@ -4078,7 +4079,7 @@ class LOSC:
         Bare function for saving voltage data from the specified channel;
         socket must be explicitly opened/closed
         """
-        rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL".format(OChan))
+        rawdataq = self._send_and_reply("C{}:WAVEFORM? ALL,WORD".format(OChan))
         parseddataq=self._parsewf(rawdataq, False)
         with open(GLOBAL.PSFILEPATH+'data/'+str(FileName)+'.csv','w',newline='') as f:
             writer=csv.writer(f, delimiter='\n')
@@ -4272,6 +4273,13 @@ class LOSC:
         """
         LData=self._FunctionWrapper(self._ctrl,{'msg':'*RCL 1','SendOnly':False});
         return LData
+    
+    def WordFormatReset(self):
+        """
+        Function for avoiding the low-res readout problem when the scopes give a janky, 8-bit version of the desired waveform; sets the scope readout to 16-bit WORD
+        """
+        self._FunctionWrapper(self._ctrl,{'msg':"COMM_FORMAT DEF9,WORD,BIN",'SendOnly':True})
+        return
 
 
 
