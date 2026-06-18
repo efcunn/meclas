@@ -2254,7 +2254,7 @@ class efc:
         Shorthand sanity check for the current version of the code
         When making code edits, the author typically administratively writes the date and maybe a unqiue and helpful message
         """
-        print('Last stamped: 20251215')
+        print('Last stamped: 20260618')
         
     def reloadpkg():
         """
@@ -6987,15 +6987,16 @@ class GLOBAL:
     OKUSERS=['mecopr']
 
     LMapAB=[5,100] #Pixel mapping from LeCroyA and LeCroyB horizontal axis (1002px) to Highland (140px)
-    LMap2=[50,1000] #Pixel mapping from LeCroy2 horizontal axis (10002px) to Highland (140px)
+    LMap2=[5,100] # for old pre-broken scope 20260617 it's [50,1000] #Pixel mapping from LeCroy2 horizontal axis (10002px) to Highland (140px)
     pwttfmap=[25,500]
     PSFILEPATH='/reg/neh/operator/mecopr/mecpython/pulseshaping/'
+    MECLASFILEPATH='/reg/g/pcds/pyps/apps/hutch-python/mec/mec/macros/'
     
     HIGHLAND_IP = 'highland-mec-01'
     LECROY_A_IP = 'scope-ics-meclas-lecroy-a'#permanent: '172.21.43.37'#'scope-ics-meclas-lecroy-a'
     LECROY_B_IP = 'scope-ics-meclas-lecroy-a'####TEMP SUBSTITUTE### #permanent: '172.21.43.31'#'scope-ics-meclas-lecroy-b'#
     LECROY_1_IP = 'scope-ics-mectc1-1'#'172.21.43.23'#'scope-ics-mectc1-1'
-    LECROY_2_IP = 'scope-ics-meclas-lecroy01'#'172.21.43.25'#'scope-ics-meclas-lecroy01'#NOTE THE NAMING DISCREPANCY!!
+    LECROY_2_IP = '172.21.43.31' # scope discovered broken on 20260617, change to new scope 'scope-ics-meclas-lecroy01'#'172.21.43.25'#'scope-ics-meclas-lecroy01'#NOTE THE NAMING DISCREPANCY!!
     LECROY_L_IP = 'scope-ics-meclas-lecroy02'#'172.21.43.36'#'scope-ics-meclas-lecroy02'(was a temporary scope used previously)
 
     PDMAX_TEST = 28000
