@@ -6993,10 +6993,10 @@ class GLOBAL:
     MECLASFILEPATH='/reg/g/pcds/pyps/apps/hutch-python/mec/mec/macros/'
     
     HIGHLAND_IP = 'highland-mec-01'
-    LECROY_A_IP = 'scope-ics-meclas-lecroy-a'#permanent: '172.21.43.37'#'scope-ics-meclas-lecroy-a'
+    LECROY_A_IP = 'scope-ics-meclas-lecroy-a'#laser 4GHz LeCroy for  LPL 10Hz + 1" 1w + SHG_opt + floater channel (sometimes SPL regen) #permanent: '172.21.43.37'#'scope-ics-meclas-lecroy-a'
     LECROY_B_IP = 'scope-ics-meclas-lecroy-a'####TEMP SUBSTITUTE### #permanent: '172.21.43.31'#'scope-ics-meclas-lecroy-b'#
-    LECROY_1_IP = 'scope-ics-mectc1-1'#'172.21.43.23'#'scope-ics-mectc1-1'
-    LECROY_2_IP = '172.21.43.31' # scope discovered broken on 20260617, change to new scope 'scope-ics-meclas-lecroy01'#'172.21.43.25'#'scope-ics-meclas-lecroy01'#NOTE THE NAMING DISCREPANCY!!
+    LECROY_1_IP = 'scope-ics-meclas-lecroy01'#instrument scientist 13GHz LeCroy by chamber #'172.21.43.25' #(used to be scope-ics-mectc1-1????)
+    LECROY_2_IP = '172.21.43.31' #laser 4GHz LeCroy for 2" 2w ABEFGHIJ waveforms #scope discovered broken on 20260617, change to new scope 'scope-ics-meclas-lecroy01'#'172.21.43.25'#'scope-ics-meclas-lecroy01'#NOTE THE NAMING DISCREPANCY!!
     LECROY_L_IP = 'scope-ics-meclas-lecroy02'#'172.21.43.36'#'scope-ics-meclas-lecroy02'(was a temporary scope used previously)
 
     PDMAX_TEST = 28000
